@@ -291,3 +291,91 @@ class RefundSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         return Refund.objects.create(**validated_data)
+
+from rest_framework import serializers
+from hotel_app.models import RoomInspection, Payment
+
+from rest_framework import serializers
+from hotel_app.models import RoomInspection, Payment
+
+from rest_framework import serializers
+from hotel_app.models import RoomInspection, Payment
+
+from rest_framework import serializers
+from hotel_app.models import RoomInspection, Payment
+
+# ✅ Payment Serializer (Handles Payment Input)
+# ✅ Payment Serializer (Handles Payment Input, allows payment to be optional)
+class PaymentInputSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = ['paymentId', 'amount', 'paymentMethod', 'transactionId', 'paymentStatus', 'paymentType', 'paymentDate']
+        extra_kwargs = {
+            'amount': {'required': False},  # ✅ Make amount optional
+        }
+
+# ✅ Room Inspection Input Serializer (Handles POST Input)
+class RoomInspectionInputSerializer(serializers.ModelSerializer):
+    payment = PaymentInputSerializer(required=False, allow_null=True)  # ✅ Payment is optional
+
+    class Meta:
+        model = RoomInspection
+        fields = ['roomCondition', 'status', 'remarks', 'payment']
+        extra_kwargs = {
+            'roomCondition': {'required': True},  # ✅ Room condition is required
+        }
+
+# ✅ Room Inspection Serializer (Handles GET Response)
+class RoomInspectionSerializer(serializers.ModelSerializer):
+    payment = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoomInspection
+        fields = ['inspectionId', 'roomCondition', 'status', 'remarks', 'payment']
+
+    def get_payment(self, obj):
+        payment = Payment.objects.filter(inspectionId=obj).first()
+        return PaymentInputSerializer(payment).data if payment else None  # ✅ Return None if no payment exists
+
+
+# ✅ Booking Inspection Serializer (Handles List of Inspections)
+class BookingInspectionSerializer(serializers.Serializer):
+    bookingId = serializers.IntegerField()
+    roomInspections = RoomInspectionInputSerializer(many=True)  # ✅ Correct Serializer for POST
+
+    def validate(self, data):
+        """Validate that at least one room inspection is provided."""
+        if not data.get('roomInspections'):
+            raise serializers.ValidationError({"roomInspections": ["At least one inspection is required."]})
+        return data
+
+    def create(self, validated_data):
+        booking_id = validated_data['bookingId']
+        inspections_data = validated_data['roomInspections']
+
+        created_inspections = []
+        for inspection_data in inspections_data:
+            payment_data = inspection_data.pop('payment', None)
+
+            # ✅ Ensure roomCondition is present before creating
+            if 'roomCondition' not in inspection_data or not inspection_data['roomCondition']:
+                raise serializers.ValidationError({"roomCondition": ["This field is required."]})
+
+            # ✅ Create Room Inspection instance
+            inspection = RoomInspection.objects.create(bookingId=booking_id, **inspection_data)
+
+            # ✅ Process payment if provided
+            payment_instance = None
+            if payment_data:
+                payment_instance = Payment.objects.create(inspectionId=inspection, **payment_data)
+
+            # ✅ Append the inspection details
+            created_inspections.append({
+                "inspectionId": inspection.inspectionId,
+                "roomCondition": inspection.roomCondition,
+                "status": inspection.status,
+                "remarks": inspection.remarks,
+                "payment": PaymentInputSerializer(payment_instance).data if payment_instance else None
+            })
+
+        return {"bookingId": booking_id, "roomInspections": created_inspections}

@@ -1,6 +1,6 @@
 from django.urls import path, include
 from .views import rooms_available, rooms, book_room_and_payment, payment_detail, all_room_details,create_payment_with_extras
-from .views import get_all_extra_services,payment_for_service,refund_operations
+from .views import get_all_extra_services,payment_for_service,refund_operations,room_inspection
 urlpatterns = [
     path('rooms/', rooms, name='rooms'),
     path('book-room/', book_room_and_payment, name='book-room'),
@@ -10,7 +10,8 @@ urlpatterns = [
     path('extra_services/', get_all_extra_services, name='get_all_extra_services'),
     path('payment_service/', payment_for_service, name='payment_for_service'),
     path('refund/', refund_operations, name='refund_operations_create'),
-
+    path('inspections/', room_inspection, name='room_inspection'),
+    path('inspections/<int:inspection_id>/', room_inspection, name='room_inspection'),
 
 
 

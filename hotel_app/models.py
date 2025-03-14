@@ -77,6 +77,12 @@ class Payment(models.Model):
     paymentType = models.CharField(max_length=50, null=True, blank=True)
     paymentDate = models.DateTimeField(default=datetime.now, null=True, blank=True)
     serviceId = models.IntegerField(null=True, blank=True)
+    inspectionId = models.ForeignKey(
+        'RoomInspection',  # Reference to RoomInspection model
+        on_delete=models.SET_NULL,  # If the inspection is deleted, set to NULL
+        null=True,
+        blank=True
+    )
 
     class Meta:
         db_table = "paymentsTable"
@@ -131,25 +137,38 @@ class Refund(models.Model):
     def __str__(self):
         return f"Refund {self.refundId} for Booking {self.bookingId} - Amount: {self.refundAmount}"
 
-        
+
 class RoomInspection(models.Model):
     inspectionId = models.AutoField(primary_key=True)
     bookingId = models.IntegerField()
     roomCondition = models.TextField(max_length=50)
-    choices=[
-            ('Good', 'Good'),
-            ('Need Cleaning', 'Need Cleaning'),
-            ('Damages', 'Damages')
-        ]
-    damageCharges=models.DecimalField(max_digits=2, decimal_places=2,null=True, blank=True)
+
+    CONDITION_CHOICES = [
+        ('Good', 'Good'),
+        ('Need Cleaning', 'Need Cleaning'),
+        ('Damages', 'Damages'),
+    ]
+
+    roomCondition = models.CharField(max_length=50, choices=CONDITION_CHOICES)  # Use choice field for consistency
+
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('In Progress', 'In Progress'),
+        ('Completed', 'Completed'),
+    ]
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')  # New status field
+    remarks = models.TextField(blank=True, null=True)  # Optional remarks field
+
     createdAt = models.DateTimeField(auto_now_add=True)
+
     class Meta:
         db_table = "roomInspectionTable"
-        
+
     def __str__(self):
-        return f"Room Inspection {self.inspectionId} for Booking {self.bookingId} - Condition: {self.roomCondition}"
-    
-    
+        return f"Inspection {self.inspectionId} | Booking {self.bookingId} | {self.roomCondition} | {self.status}"
+
+
 class MaintenanceRequest(models.Model):
     requestId=models.AutoField(primary_key=True)
     roomId=models.IntegerField()
@@ -297,6 +316,7 @@ class MaintenanceStaffRequest(models.Model):
 
     def __str__(self):
         return f"Maintenance Request {self.requestId} for Room {self.roomNumber}"
+
 
 
 

@@ -395,3 +395,91 @@ def refund_operations(request):
                 return Response(serializer.errors, status=400)
 
         return Response({"message": "Refund(s) updated successfully!", "updated_data": updated_refunds}, status=200)
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from hotel_app.models import RoomInspection, Payment
+from hotel_app.serializers import BookingInspectionSerializer,RoomInspectionSerializer, RoomInspectionInputSerializer, PaymentInputSerializer
+
+@api_view(['POST', 'GET', 'PUT'])
+def room_inspection(request, inspection_id=None):
+    if request.method == 'POST':
+        serializer = BookingInspectionSerializer(data=request.data)
+        if serializer.is_valid():
+            booking_id = serializer.validated_data['bookingId']
+            inspections_data = serializer.validated_data['roomInspections']
+
+            created_inspections = []
+            for inspection_data in inspections_data:
+                payment_data = inspection_data.pop('payment', None)  # ✅ Extract payment if exists
+
+                # ✅ Create Room Inspection
+                inspection = RoomInspection.objects.create(bookingId=booking_id, **inspection_data)
+
+                # ✅ Create Payment only if payment details exist
+                payment_instance = None
+                if payment_data and 'amount' in payment_data:
+                    payment_instance = Payment.objects.create(
+                        bookingId=booking_id,
+                        inspectionId=inspection,
+                        **payment_data
+                    )
+
+                # ✅ Append response data
+                created_inspections.append({
+                    "inspectionId": inspection.inspectionId,
+                    "roomCondition": inspection.roomCondition,
+                    "status": inspection.status,
+                    "remarks": inspection.remarks,
+                    "payment": PaymentInputSerializer(payment_instance).data if payment_instance else None
+                })
+
+            return Response({"bookingId": booking_id, "roomInspections": created_inspections}, status=201)
+
+        return Response(serializer.errors, status=400)
+
+    elif request.method == 'PUT':
+        if not inspection_id:
+            return Response({"error": "Inspection ID is required for updating"}, status=400)  # ✅ Fixes `NoneType` issue
+
+        try:
+            inspection = RoomInspection.objects.get(inspectionId=inspection_id)
+        except RoomInspection.DoesNotExist:
+            return Response({"error": "Inspection not found"}, status=404)
+
+        serializer = RoomInspectionInputSerializer(inspection, data=request.data, partial=True)
+        if serializer.is_valid():
+            updated_inspection = serializer.save()
+
+            # ✅ Handle Payment Updates
+            payment_data = request.data.get('payment', None)
+            payment_instance = Payment.objects.filter(inspectionId=inspection).first()
+
+            if payment_data:
+                if not payment_instance:
+                    # ✅ Create Payment if it didn't exist before
+                    payment_instance = Payment.objects.create(
+                        bookingId=inspection.bookingId,
+                        inspectionId=inspection,
+                        **payment_data
+                    )
+                else:
+                    # ✅ Update Existing Payment
+                    for key, value in payment_data.items():
+                        setattr(payment_instance, key, value)
+                    payment_instance.save()
+
+            # ✅ Return updated response
+            return Response({
+                "inspectionId": updated_inspection.inspectionId,
+                "roomCondition": updated_inspection.roomCondition,
+                "status": updated_inspection.status,
+                "remarks": updated_inspection.remarks,
+                "payment": PaymentInputSerializer(payment_instance).data if payment_instance else None
+            }, status=200)
+
+        return Response(serializer.errors, status=400)
+
+    return Response({"error": "Invalid request method"}, status=405)  # ✅ Ensures every case returns a response
