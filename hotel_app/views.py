@@ -11,6 +11,10 @@ def rooms_available(request):
     rooms = Rooms.objects.all()
     serializer = RoomSerializer(rooms, many=True)
     return Response(serializer.data)
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from hotel_app.models import Rooms, Booking, Payment, Customer
+from hotel_app.serializers import BookingSerializer, PaymentSerializer, CustomerSerializer
 
 @api_view(['POST'])
 def book_room_and_payment(request):
@@ -30,25 +34,54 @@ def book_room_and_payment(request):
     serializer = BookingSerializer(data=request.data)
     if serializer.is_valid():
         booking = serializer.save()
+
         # Update room status to "Occupied" after successful booking
         room.status = "Occupied"
         room.save()
         return Response(serializer.data, status=201)
     else:
-        # Log serializer errors to help diagnose the problem
-        print("Serializer Errors:", serializer.errors)
+        print("Serializer Errors:", serializer.errors)  # Debugging
         return Response(serializer.errors, status=400)
 
 
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from hotel_app.models import Booking, Customer, Payment, Rooms
+from hotel_app.serializers import BookingSerializer, CustomerSerializer, PaymentSerializer
+
+
+@api_view(["PUT"])  # 👈 Allow PUT for updating bookings
+def update_booking(request, booking_id):
+    try:
+        booking = Booking.objects.get(bookingId=booking_id)
+    except Booking.DoesNotExist:
+        return Response({"error": "Booking not found"}, status=404)
+
+    serializer = BookingSerializer(booking, data=request.data, partial=True)  # 👈 Allow partial updates
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=200)
+
+    return Response(serializer.errors, status=400)
+
 @api_view(['GET'])
 def payment_detail(request, booking_id):
-    try:
-        payment = Payment.objects.get(bookingId=booking_id)  # Use bookingId instead of booking
-        return Response({"message": "Payment found", "data": PaymentSerializer(payment).data})
-    except Payment.DoesNotExist:
-        return Response({"error": "Payment not found"}, status=404)
+    payments = Payment.objects.filter(bookingId=booking_id)  # Fetch all payments for the given bookingId
+    if payments.exists():
+        return Response({
+            "message": "Payments found",
+            "data": PaymentSerializer(payments, many=True).data  # Use many=True to serialize multiple payments
+        })
+    else:
+        return Response({"error": "No payments found for this bookingId"}, status=404)
 
 
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.db.models import Q
+from datetime import datetime
+from .models import Rooms, Booking, Customer, Payment
+from .serializers import RoomSimpleDetailSerializer
 
 @api_view(['GET'])
 def all_room_details(request):
@@ -89,25 +122,19 @@ def all_room_details(request):
         customer_ids = list(
             Customer.objects.filter(fullName__iexact=name).values_list('customerId', flat=True)
         )
-        if customer_ids:
-            booking_qs = booking_qs.filter(customerId__in=customer_ids)
-        else:
-            booking_qs = Booking.objects.none()
+        booking_qs = booking_qs.filter(customerId__in=customer_ids) if customer_ids else Booking.objects.none()
     if payment_status:
         payment_booking_ids = list(
             Payment.objects.filter(paymentStatus__iexact=payment_status).values_list('bookingId', flat=True)
         )
-        if payment_booking_ids:
-            booking_qs = booking_qs.filter(bookingId__in=payment_booking_ids)
-        else:
-            booking_qs = Booking.objects.none()
+        booking_qs = booking_qs.filter(bookingId__in=payment_booking_ids) if payment_booking_ids else Booking.objects.none()
 
-    # If any booking-level filters were provided, further limit the rooms.
+    # If booking-level filters were applied, limit the rooms
     if from_date or to_date or name or payment_status:
         booking_room_ids = list(booking_qs.values_list('roomId', flat=True).distinct())
         rooms_qs = rooms_qs.filter(roomId__in=booking_room_ids)
 
-    # Prepare context to pass booking-level filters into nested serializers.
+    # Pass filter parameters to serializer context
     context = {
         'from_date': from_date,
         'to_date': to_date,
@@ -187,13 +214,17 @@ def create_payment_with_extras(request):
     booking_id = request.data.get("bookingId")
     extra_services_data = request.data.get("extraServices", [])
 
+    # ✅ Validate bookingId
     if not booking_id:
         return Response({"error": "bookingId is required."}, status=400)
 
-    # ✅ Check if booking exists
-    if not Booking.objects.filter(bookingId=booking_id).exists():
+    # ✅ Ensure booking exists
+    try:
+        booking = Booking.objects.get(bookingId=booking_id)
+    except Booking.DoesNotExist:
         return Response({"error": f"Booking with ID {booking_id} not found."}, status=404)
 
+    # ✅ Validate extraServices list
     if not isinstance(extra_services_data, list) or not extra_services_data:
         return Response({"error": "extraServices must be a non-empty list."}, status=400)
 
@@ -204,17 +235,19 @@ def create_payment_with_extras(request):
         service_cost = extra_service_data.get("serviceCost")
         payment_data = extra_service_data.pop("payment", None)
 
-        extra_service_data["bookingId"] = booking_id  # Ensure bookingId is set
+        # ✅ Assign bookingId (matching the model field name)
+        extra_service_data["bookingId"] = booking.bookingId  # Use `bookingId` not `booking`
 
         extra_service_serializer = ExtraServiceSerializer(data=extra_service_data)
         if extra_service_serializer.is_valid():
-            extra_service = extra_service_serializer.save()
+            extra_service = extra_service_serializer.save()  # No need to pass booking explicitly
 
-            # Process Payment if provided
+            # ✅ Process Payment if provided
             if payment_data:
                 payment_data["serviceId"] = extra_service.serviceId
-                payment_data["bookingId"] = booking_id
+                payment_data["bookingId"] = booking.bookingId  # ✅ Ensure bookingId is assigned
                 payment_serializer = PaymentExtraInputSerializer(data=payment_data)
+
                 if payment_serializer.is_valid():
                     payment_serializer.save()
                 else:

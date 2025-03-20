@@ -23,10 +23,16 @@ class RoomSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class ExtraServiceSerializer(serializers.ModelSerializer):
+    payment_details = serializers.SerializerMethodField()
+    bookingId=serializers.IntegerField(required=False, allow_null=True)
+
     class Meta:
         model = ExtraService
-        fields = ('serviceId', 'bookingId', 'serviceName', 'serviceCost', 'createdAt')
-        read_only_fields = ('serviceId', 'booking', 'createdAt')
+        fields = ('serviceId', 'serviceName','bookingId','serviceCost', 'createdAt', 'payment_details')
+
+    def get_payment_details(self, obj):
+        payments = Payment.objects.filter(serviceId=obj.serviceId)
+        return PaymentSimpleSerializer(payments, many=True).data
 
 
 from rest_framework import serializers
@@ -100,69 +106,68 @@ class PaymentSerializer(serializers.ModelSerializer):
         return rep
 
 
-# Payment simple serializer (for output in booking details)
 class PaymentSimpleSerializer(serializers.ModelSerializer):
-    extra_services_total = serializers.SerializerMethodField()
-    extra_services = serializers.SerializerMethodField()
-
     class Meta:
         model = Payment
-        fields = ('paymentStatus', 'extra_services', 'extra_services_total')
-
-    def get_extra_services(self, obj):
-        services = ExtraService.objects.filter(bookingId=obj.bookingId)
-        return [{"serviceName": s.serviceName, "serviceCost": s.serviceCost} for s in services]
-
-    def get_extra_services_total(self, obj):
-        services = ExtraService.objects.filter(bookingId=obj.bookingId)
-        return sum(s.serviceCost for s in services)
+        fields = ('paymentId', 'bookingId', 'serviceId', 'inspectionId', 'amount', 'paymentDate', 'paymentMethod', 'paymentStatus')
 
 
 
 
 # Booking serializer for creation (input)
 class BookingSerializer(serializers.ModelSerializer):
-    customer_input = CustomerSerializer(required=True, write_only=True)
+    customer_input = CustomerSerializer(required=False, allow_null=True, write_only=True)
     payment = PaymentSerializer(required=False, write_only=True)
 
     class Meta:
         model = Booking
         fields = (
-            'bookingId',
-            'customerId',
-            'customer_input',
-            'roomId',
-            'checkInDate',
-            'Advance',
-            'Rent',
-            'createdAt',
-            'payment'
+            "bookingId",
+            "customerId",
+            "customer_input",
+            "roomId",
+            "checkInDate",
+            "Advance",
+            "Rent",
+            "createdAt",
+            "payment",
         )
-        read_only_fields = ('bookingId', 'createdAt', 'customerId')
+        read_only_fields = ("bookingId", "createdAt", "customerId")
 
-    def create(self, validated_data):
-        # Extract nested customer data and create a Customer record
-        customer_data = validated_data.pop('customer_input')
-        customer = Customer.objects.create(**customer_data)
-        validated_data['customerId'] = customer.customerId
+    def update(self, instance, validated_data):
+        # Update customer if provided
+        customer_data = validated_data.pop("customer_input", None)
+        if customer_data:
+            customer, created = Customer.objects.update_or_create(
+                idPassportNumber=customer_data.get("idPassportNumber"),
+                defaults=customer_data
+            )
+            instance.customerId = customer.customerId
 
-        # Extract payment data if provided
-        payment_data = validated_data.pop('payment', None)
-        booking = Booking.objects.create(**validated_data)
+        # Update payment if provided
+        payment_data = validated_data.pop("payment", None)
         if payment_data:
-            payment_data['bookingId'] = booking.bookingId
-            Payment.objects.create(**payment_data)
-        return booking
+            Payment.objects.update_or_create(
+                bookingId=instance.bookingId, defaults=payment_data
+            )
+
+        # Update other fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        return instance
 
 
 # Booking simple detail serializer (for output)
 from rest_framework import serializers
 from hotel_app.models import Booking, Payment, Customer
 from .serializers import PaymentSimpleSerializer, CustomerSerializer
-
 class BookingSimpleDetailSerializer(serializers.ModelSerializer):
     payment_details = serializers.SerializerMethodField()
     customer_details = serializers.SerializerMethodField()
+    extra_services = serializers.SerializerMethodField()  # Added
+    inspections = serializers.SerializerMethodField()  # Added
 
     class Meta:
         model = Booking
@@ -175,24 +180,26 @@ class BookingSimpleDetailSerializer(serializers.ModelSerializer):
             'Advance',
             'Rent',
             'createdAt',
-            'payment_details'
+            'payment_details',
+            'extra_services',  # Moved inside booking
+            'inspections'  # Moved inside booking
         )
 
     def get_payment_details(self, obj):
-        # Use filter().first() instead of get() to avoid MultipleObjectsReturned.
-        payment = Payment.objects.filter(bookingId=obj.bookingId).first()
-        if payment:
-            return PaymentSimpleSerializer(payment).data
-        else:
-            return {"paymentStatus": "Not Done", "extra_services": [], "extra_services_total": 0}
+        payments = Payment.objects.filter(bookingId=obj.bookingId)
+        return PaymentSimpleSerializer(payments, many=True).data
 
     def get_customer_details(self, obj):
-        try:
-            customer = Customer.objects.get(customerId=obj.customerId)
-            return CustomerSerializer(customer).data
-        except Customer.DoesNotExist:
-            return {}
+        customer = Customer.objects.filter(customerId=obj.customerId).first()
+        return CustomerSerializer(customer).data if customer else {}
 
+    def get_extra_services(self, obj):
+        services = ExtraService.objects.filter(bookingId=obj.bookingId)
+        return ExtraServiceSerializer(services, many=True).data
+
+    def get_inspections(self, obj):
+        inspections = RoomInspection.objects.filter(bookingId=obj.bookingId)
+        return RoomInspectionSerializer(inspections, many=True).data
 
 from rest_framework import serializers
 from hotel_app.models import Rooms, Booking, Customer, Payment
@@ -205,36 +212,9 @@ class RoomSimpleDetailSerializer(serializers.ModelSerializer):
         model = Rooms
         fields = ('roomId', 'roomNumber', 'roomType', 'status', 'Advance', 'Rent', 'bookings')
 
-    def to_representation(self, instance):
-        rep = super().to_representation(instance)
-        rep['bookings'] = self.get_bookings(instance)
-        return rep
-
     def get_bookings(self, obj):
         qs = Booking.objects.filter(roomId=obj.roomId)
-        # Retrieve booking-level filters from context.
-        from_date = self.context.get('from_date', '').strip()
-        to_date = self.context.get('to_date', '').strip()
-        name = self.context.get('name', '').strip()
-        payment_status = self.context.get('payment_status', '').strip()
-
-        if from_date:
-            qs = qs.filter(checkInDate__gte=from_date)
-        if to_date:
-            qs = qs.filter(checkInDate__lte=to_date)
-        if name:
-
-            customer_ids = list(
-                Customer.objects.filter(fullName__istartswith=name).values_list('customerId', flat=True)
-            )
-            qs = qs.filter(customerId__in=customer_ids)
-        if payment_status:
-            payment_ids = list(
-                Payment.objects.filter(paymentStatus__iexact=payment_status).values_list('bookingId', flat=True)
-            )
-            qs = qs.filter(bookingId__in=payment_ids)
         return BookingSimpleDetailSerializer(qs, many=True, context=self.context).data
-
 
 from rest_framework import serializers
 from hotel_app.models import Payment, ExtraService
@@ -325,17 +305,16 @@ class RoomInspectionInputSerializer(serializers.ModelSerializer):
             'roomCondition': {'required': True},  # ✅ Room condition is required
         }
 
-# ✅ Room Inspection Serializer (Handles GET Response)
 class RoomInspectionSerializer(serializers.ModelSerializer):
-    payment = serializers.SerializerMethodField()
+    payment_details = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomInspection
-        fields = ['inspectionId', 'roomCondition', 'status', 'remarks', 'payment']
+        fields = ['inspectionId', 'roomCondition', 'status', 'remarks', 'createdAt', 'payment_details']
 
-    def get_payment(self, obj):
-        payment = Payment.objects.filter(inspectionId=obj).first()
-        return PaymentInputSerializer(payment).data if payment else None  # ✅ Return None if no payment exists
+    def get_payment_details(self, obj):
+        payments = Payment.objects.filter(inspectionId=obj.inspectionId)
+        return PaymentSimpleSerializer(payments, many=True).data
 
 
 # ✅ Booking Inspection Serializer (Handles List of Inspections)
@@ -379,3 +358,12 @@ class BookingInspectionSerializer(serializers.Serializer):
             })
 
         return {"bookingId": booking_id, "roomInspections": created_inspections}
+
+
+
+
+
+
+
+
+
