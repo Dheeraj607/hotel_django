@@ -118,6 +118,7 @@ class PaymentSimpleSerializer(serializers.ModelSerializer):
 class BookingSerializer(serializers.ModelSerializer):
     customer_input = CustomerSerializer(required=False, allow_null=True, write_only=True)
     payment = PaymentSerializer(required=False, write_only=True)
+    checkInDate = serializers.DateField(format="%Y-%m-%d", input_formats=["%Y-%m-%d"])
 
     class Meta:
         model = Booking
@@ -134,24 +135,53 @@ class BookingSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("bookingId", "createdAt", "customerId")
 
-    def update(self, instance, validated_data):
-        # Update customer if provided
+    def create(self, validated_data):
+        # ✅ Extract and remove nested fields before creating Booking
         customer_data = validated_data.pop("customer_input", None)
+        payment_data = validated_data.pop("payment", None)
+
+        # ✅ Create or update customer if provided
         if customer_data:
             customer, created = Customer.objects.update_or_create(
-                idPassportNumber=customer_data.get("idPassportNumber"),
+                idPassportNumber=customer_data["idPassportNumber"],
                 defaults=customer_data
             )
-            instance.customerId = customer.customerId
+            validated_data["customerId"] = customer.customerId  # Assign the customer ID to booking
 
-        # Update payment if provided
+        # ✅ Create the booking with only valid fields
+        booking = Booking.objects.create(**validated_data)
+
+        # ✅ Create Payment if provided
+        if payment_data:
+            Payment.objects.create(bookingId=booking.bookingId, **payment_data)  # Fix here ✅
+
+        return booking
+
+    def update(self, instance, validated_data):
+        # ✅ Handle customer updates
+        customer_data = validated_data.pop("customer_input", None)
+        if customer_data:
+            customer = Customer.objects.filter(idPassportNumber=customer_data["idPassportNumber"]).first()
+            if customer:
+                # ✅ Update only if customer exists
+                for attr, value in customer_data.items():
+                    setattr(customer, attr, value)
+                customer.save()
+            else:
+                # ✅ Create new customer only if it does not exist
+                customer = Customer.objects.create(**customer_data)
+
+            instance.customerId = customer.customerId  # Assign the updated/new customer ID
+
+        # ✅ Handle payment updates
         payment_data = validated_data.pop("payment", None)
         if payment_data:
             Payment.objects.update_or_create(
-                bookingId=instance.bookingId, defaults=payment_data
+                bookingId=instance.bookingId,
+                defaults=payment_data
             )
 
-        # Update other fields
+        # ✅ Update the remaining booking fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -360,10 +390,71 @@ class BookingInspectionSerializer(serializers.Serializer):
         return {"bookingId": booking_id, "roomInspections": created_inspections}
 
 
+from rest_framework import serializers
+from hotel_app.models import MaintenanceStaffRoles,MaintenanceStaff
+
+class MaintenanceStaffRolesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MaintenanceStaffRoles
+        fields = '__all__'
+
+from rest_framework import serializers
+from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+
+from rest_framework import serializers
+from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+
+from rest_framework import serializers
+from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+
+from rest_framework import serializers
+from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+
+
+from rest_framework import serializers
+from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+from rest_framework import serializers
+from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+
+class MaintenanceStaffSerializer(serializers.ModelSerializer):
+    staffId = serializers.PrimaryKeyRelatedField(queryset=StaffManagement.objects.all())
+    roleId = serializers.PrimaryKeyRelatedField(queryset=MaintenanceStaffRoles.objects.all())
+
+    class Meta:
+        model = MaintenanceStaff
+        fields = ['id', 'staffId', 'roleId']  # No "_id" in response
+
+from rest_framework import serializers
+from .models import StaffManagement, MaintenanceStaffRoles
+
+class StaffManagementSerializer(serializers.ModelSerializer):
+    roleId = serializers.PrimaryKeyRelatedField(queryset=MaintenanceStaffRoles.objects.all())
+
+    class Meta:
+        model = StaffManagement
+        fields = ['staffId', 'name', 'contactNumber', 'email', 'address', 'roleId']
 
 
 
+from rest_framework import serializers
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment
 
+from rest_framework import serializers
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment
 
+class MaintenanceRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MaintenanceRequest
+        fields = ['requestId', 'roomId', 'issueDescription', 'priorityLevel', 'requestDate', 'status']
+        read_only_fields = ['requestId', 'requestDate']
 
+class MaintenanceAssignmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MaintenanceAssignment
+        fields = "__all__"
 
+    def validate_staffId(self, value):
+        """Ensure staffId is correctly mapped"""
+        if isinstance(value, MaintenanceStaff):
+            return value.id  # ✅ Return the primary key instead of object
+        return value

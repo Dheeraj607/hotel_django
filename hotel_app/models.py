@@ -168,6 +168,87 @@ class RoomInspection(models.Model):
     def __str__(self):
         return f"Inspection {self.inspectionId} | Booking {self.bookingId} | {self.roomCondition} | {self.status}"
 
+from django.db import models
+
+class MaintenanceStaffRoles(models.Model):
+    # Role name choices
+    ROLE_CHOICES = [
+        ('plumber', 'Plumber'),
+        ('electrician', 'Electrician'),
+        ('cleaner', 'Cleaner'),
+        ('general_maintenance', 'General Maintenance'),
+    ]
+
+    # Maintenance type choices
+    MAINTENANCE_TYPE_CHOICES = [
+        ('plumbing', 'Plumbing'),
+        ('electricianing', 'Electricianing'),
+        ('cleaning', 'Cleaning'),
+        ('general_maintaining', 'General Maintaining'),
+    ]
+
+    roleId = models.AutoField(primary_key=True)
+    roleName = models.CharField(max_length=50, choices=ROLE_CHOICES, unique=True)
+    maintenanceType = models.CharField(max_length=50, choices=MAINTENANCE_TYPE_CHOICES)
+
+    class Meta:
+        db_table = "maintenanceStaffRoles"
+
+    def __str__(self):
+        return f"{self.roleName} - {self.maintenanceType}"
+
+
+# ✅ Now define StaffManagement AFTER MaintenanceStaffRoles
+class StaffManagement(models.Model):
+    staffId = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=255)
+    contactNumber = models.CharField(max_length=100, unique=True)
+    email = models.EmailField(max_length=100, unique=True)
+    address = models.CharField(max_length=255)
+
+    # ✅ Ensure roleId is used instead of roleId_id
+    roleId = models.ForeignKey(
+        MaintenanceStaffRoles,
+        on_delete=models.CASCADE,
+        related_name="staff",
+        db_column="roleId"  # ✅ This ensures the column is named roleId in the DB
+    )
+
+    class Meta:
+        db_table = "staffManagement"
+
+    def __str__(self):
+        return f"{self.name} ({self.roleId.roleName if self.roleId else 'No Role'})"
+
+
+from django.db import models
+
+
+class MaintenanceStaff(models.Model):
+    id = models.AutoField(primary_key=True)
+
+    staffId = models.ForeignKey(
+        'StaffManagement',
+        on_delete=models.CASCADE,
+        db_column="staffId",
+        related_name="maintenance_staff"
+    )
+
+    roleId = models.ForeignKey(
+        'MaintenanceStaffRoles',
+        on_delete=models.CASCADE,
+        db_column="roleId",
+        related_name="staff_roles"
+    )
+
+    class Meta:
+        db_table = "maintenanceStaff"
+
+    def __str__(self):
+        return f"{self.staffId.name} - {self.roleId.roleName}"
+
+
+
 
 class MaintenanceRequest(models.Model):
     requestId=models.AutoField(primary_key=True)
@@ -198,8 +279,8 @@ class MaintenanceRequest(models.Model):
 
 class MaintenanceAssignment(models.Model):
     assignmentId = models.AutoField(primary_key=True)
-    requestId = models.IntegerField()
-    staffId = models.IntegerField(null=True, blank=True)
+    requestId = models.ForeignKey(MaintenanceRequest, on_delete=models.CASCADE, related_name="assignments")
+    maintenanceStaffId = models.ForeignKey(MaintenanceStaff, on_delete=models.CASCADE, related_name="assignments")  # ✅ Correct FK
     assignedDate = models.DateTimeField(auto_now_add=True)
     completionDate = models.DateTimeField(null=True, blank=True)
     issueResolved = models.BooleanField(default=False)

@@ -49,20 +49,49 @@ from rest_framework.response import Response
 from hotel_app.models import Booking, Customer, Payment, Rooms
 from hotel_app.serializers import BookingSerializer, CustomerSerializer, PaymentSerializer
 
-
-@api_view(["PUT"])  # 👈 Allow PUT for updating bookings
+@api_view(["PUT"])
 def update_booking(request, booking_id):
+    """Handles updating an existing booking, including customer and payment details."""
     try:
         booking = Booking.objects.get(bookingId=booking_id)
     except Booking.DoesNotExist:
         return Response({"error": "Booking not found"}, status=404)
 
-    serializer = BookingSerializer(booking, data=request.data, partial=True)  # 👈 Allow partial updates
+    # ✅ Extract nested customer and payment data separately
+    customer_data = request.data.pop("customer_input", None)
+    payment_data = request.data.pop("payment", None)
+
+    # ✅ Update customer details if provided
+    if customer_data:
+        customer = Customer.objects.filter(idPassportNumber=customer_data.get("idPassportNumber")).first()
+        if customer:
+            for attr, value in customer_data.items():
+                setattr(customer, attr, value)
+            customer.save()
+        else:
+            customer = Customer.objects.create(**customer_data)
+
+        request.data["customerId"] = customer.customerId
+
+    # ✅ Update the booking itself
+    serializer = BookingSerializer(booking, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
-        return Response(serializer.data, status=200)
+
+        # ✅ Update payment details if provided
+        if payment_data:
+            Payment.objects.update_or_create(
+                bookingId=booking.bookingId,
+                defaults=payment_data
+            )
+
+        return Response(
+            {"message": "Booking updated successfully"},  # ✅ Return only a message
+            status=200
+        )
 
     return Response(serializer.errors, status=400)
+
 
 @api_view(['GET'])
 def payment_detail(request, booking_id):
@@ -432,9 +461,13 @@ def refund_operations(request):
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from rest_framework import status
 from hotel_app.models import RoomInspection, Payment
-from hotel_app.serializers import BookingInspectionSerializer,RoomInspectionSerializer, RoomInspectionInputSerializer, PaymentInputSerializer
+from hotel_app.serializers import (
+    BookingInspectionSerializer,
+    RoomInspectionSerializer,
+    RoomInspectionInputSerializer,
+    PaymentInputSerializer
+)
 
 @api_view(['POST', 'GET', 'PUT'])
 def room_inspection(request, inspection_id=None):
@@ -446,12 +479,10 @@ def room_inspection(request, inspection_id=None):
 
             created_inspections = []
             for inspection_data in inspections_data:
-                payment_data = inspection_data.pop('payment', None)  # ✅ Extract payment if exists
+                payment_data = inspection_data.pop('payment', None)
 
-                # ✅ Create Room Inspection
                 inspection = RoomInspection.objects.create(bookingId=booking_id, **inspection_data)
 
-                # ✅ Create Payment only if payment details exist
                 payment_instance = None
                 if payment_data and 'amount' in payment_data:
                     payment_instance = Payment.objects.create(
@@ -460,7 +491,6 @@ def room_inspection(request, inspection_id=None):
                         **payment_data
                     )
 
-                # ✅ Append response data
                 created_inspections.append({
                     "inspectionId": inspection.inspectionId,
                     "roomCondition": inspection.roomCondition,
@@ -475,7 +505,7 @@ def room_inspection(request, inspection_id=None):
 
     elif request.method == 'PUT':
         if not inspection_id:
-            return Response({"error": "Inspection ID is required for updating"}, status=400)  # ✅ Fixes `NoneType` issue
+            return Response({"error": "Inspection ID is required for updating"}, status=400)
 
         try:
             inspection = RoomInspection.objects.get(inspectionId=inspection_id)
@@ -486,25 +516,21 @@ def room_inspection(request, inspection_id=None):
         if serializer.is_valid():
             updated_inspection = serializer.save()
 
-            # ✅ Handle Payment Updates
             payment_data = request.data.get('payment', None)
             payment_instance = Payment.objects.filter(inspectionId=inspection).first()
 
             if payment_data:
                 if not payment_instance:
-                    # ✅ Create Payment if it didn't exist before
                     payment_instance = Payment.objects.create(
                         bookingId=inspection.bookingId,
                         inspectionId=inspection,
                         **payment_data
                     )
                 else:
-                    # ✅ Update Existing Payment
                     for key, value in payment_data.items():
                         setattr(payment_instance, key, value)
                     payment_instance.save()
 
-            # ✅ Return updated response
             return Response({
                 "inspectionId": updated_inspection.inspectionId,
                 "roomCondition": updated_inspection.roomCondition,
@@ -515,4 +541,362 @@ def room_inspection(request, inspection_id=None):
 
         return Response(serializer.errors, status=400)
 
-    return Response({"error": "Invalid request method"}, status=405)  # ✅ Ensures every case returns a response
+    elif request.method == 'GET':
+        if not inspection_id:
+            return Response({"error": "Inspection ID is required for fetching"}, status=400)
+
+        try:
+            inspection = RoomInspection.objects.get(inspectionId=inspection_id)
+            payment_instance = Payment.objects.filter(inspectionId=inspection).first()
+
+            return Response({
+                "inspectionId": inspection.inspectionId,
+                "roomCondition": inspection.roomCondition,
+                "status": inspection.status,
+                "remarks": inspection.remarks,
+                "payment": PaymentInputSerializer(payment_instance).data if payment_instance else None
+            }, status=200)
+
+        except RoomInspection.DoesNotExist:
+            return Response({"error": "Inspection not found"}, status=404)
+
+    return Response({"error": "Invalid request method"}, status=405)
+
+
+
+
+
+
+
+from rest_framework.decorators import api_view
+from hotel_app.serializers import MaintenanceStaffRolesSerializer
+
+# ✅ GET (all roles) & POST (create role)
+@api_view(['GET', 'POST'])
+def maintenance_roles_list(request):
+    if request.method == 'GET':
+        roles = MaintenanceStaffRoles.objects.all()
+        serializer = MaintenanceStaffRolesSerializer(roles, many=True)
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        serializer = MaintenanceStaffRolesSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# ✅ GET (single role) & PUT (update role)
+@api_view(['GET', 'PUT'])
+def maintenance_role_detail(request, role_id):
+    try:
+        role = MaintenanceStaffRoles.objects.get(roleId=role_id)
+    except MaintenanceStaffRoles.DoesNotExist:
+        return Response({"error": "Role not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        serializer = MaintenanceStaffRolesSerializer(role)
+        return Response(serializer.data)
+
+    elif request.method == 'PUT':
+        serializer = MaintenanceStaffRolesSerializer(role, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from hotel_app.models import MaintenanceStaff,MaintenanceStaffRoles
+from hotel_app.serializers import MaintenanceStaffSerializer
+
+@api_view(['POST', 'GET'])
+def maintenance_staff_list(request):
+    if request.method == 'GET':
+        staff = MaintenanceStaff.objects.all()
+        serializer = MaintenanceStaffSerializer(staff, many=True)
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        serializer = MaintenanceStaffSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET', 'PUT'])
+def maintenance_staff_detail(request, id):
+    try:
+        staff = MaintenanceStaff.objects.get(id=id)
+    except MaintenanceStaff.DoesNotExist:
+        return Response({"error": "Maintenance staff not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        serializer = MaintenanceStaffSerializer(staff)
+        return Response(serializer.data)
+
+    elif request.method == 'PUT':
+        serializer = MaintenanceStaffSerializer(staff, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceRequest, MaintenanceAssignment
+from hotel_app.serializers import MaintenanceRequestSerializer, MaintenanceAssignmentSerializer
+
+@api_view(['POST'])
+def create_maintenance_request(request):
+    """Handles creating a maintenance request and assigning it to a staff member."""
+
+    # ✅ Required Fields Check
+    required_fields = ["roomId", "issueDescription", "priorityLevel", "status", "requestDate"]
+    missing_fields = [field for field in required_fields if field not in request.data]
+
+    if missing_fields:
+        return Response({"error": f"Missing required fields: {', '.join(missing_fields)}"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    # ✅ Create Maintenance Request
+    request_serializer = MaintenanceRequestSerializer(data=request.data)
+    if not request_serializer.is_valid():
+        return Response(request_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    maintenance_request = request_serializer.save()  # ✅ Save Maintenance Request
+
+    # ✅ Assign to Maintenance Staff if `maintenanceStaffId` is provided
+    maintenance_staff_id = request.data.get("maintenanceStaffId")  # ✅ Using maintenanceStaffId instead of staffId
+    assignment_serializer = None
+
+    if maintenance_staff_id:
+        try:
+            # ✅ Get the MaintenanceStaff instance using maintenanceStaffId
+            staff_instance = MaintenanceStaff.objects.get(id=maintenance_staff_id)
+        except MaintenanceStaff.DoesNotExist:
+            maintenance_request.delete()  # Rollback if staff doesn't exist
+            return Response({"error": f"Staff with ID {maintenance_staff_id} does not exist in MaintenanceStaff."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # ✅ Assign Maintenance Request to Staff
+        assignment_data = {
+            "requestId": maintenance_request.requestId,  # ✅ Link to Maintenance Request
+            "maintenanceStaffId": staff_instance.id,  # ✅ Use maintenanceStaffId as FK
+            "issueResolved": False,
+            "comments": request.data.get("comments", "")
+        }
+
+        assignment_serializer = MaintenanceAssignmentSerializer(data=assignment_data)
+        if assignment_serializer.is_valid():
+            assignment_serializer.save()  # ✅ Save Maintenance Assignment
+        else:
+            maintenance_request.delete()  # Rollback if assignment fails
+            print("❌ Assignment Serializer Errors:", assignment_serializer.errors)  # 🔴 Debugging
+            return Response({"error": "Failed to save maintenance assignment",
+                             "details": assignment_serializer.errors},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+    # ✅ Success Response
+    return Response({
+        "message": "Maintenance request and assignment saved successfully",
+        "maintenanceRequest": request_serializer.data,
+        "maintenanceAssignment": assignment_serializer.data if maintenance_staff_id else None
+    }, status=status.HTTP_201_CREATED)
+
+
+from rest_framework.response import Response
+from rest_framework import status
+from django.db.models import Q
+from rest_framework.decorators import api_view
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement
+
+
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.decorators import api_view
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement
+
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.decorators import api_view
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement
+
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.decorators import api_view
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement
+
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.decorators import api_view
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.decorators import api_view
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+
+@api_view(['GET'])
+def get_maintenance_requests_with_staff(request):
+    """Fetch maintenance requests with assigned staff details and filtering."""
+
+    # Extract filter parameters
+    request_id = request.GET.get('requestId')
+    room_id = request.GET.get('roomId')
+    maintenance_staff_id = request.GET.get('maintenanceStaffId')
+    status_filter = request.GET.get('status')
+    priority_level = request.GET.get('priorityLevel')
+    role_id = request.GET.get('roleId')
+    assigned_date = request.GET.get('assignedDate')
+    issue_resolved = request.GET.get('issueResolved')
+
+    # Initial query for all maintenance requests
+    maintenance_requests = MaintenanceRequest.objects.all()
+
+    # Apply filters
+    if request_id:
+        maintenance_requests = maintenance_requests.filter(requestId=request_id)
+    if room_id:
+        maintenance_requests = maintenance_requests.filter(roomId=room_id)
+    if status_filter:
+        maintenance_requests = maintenance_requests.filter(status=status_filter)
+    if priority_level:
+        maintenance_requests = maintenance_requests.filter(priorityLevel=priority_level)
+
+    response_data = []
+    for request_obj in maintenance_requests:
+        assignment = MaintenanceAssignment.objects.filter(requestId=request_obj).first()
+        assignment_data = None
+
+        if assignment:
+            staff = assignment.maintenanceStaffId  # Foreign Key to MaintenanceStaff
+
+            # staff.staffId should reference the related StaffManagement object
+            try:
+                staff_member = staff.staffId  # This should be the related StaffManagement object
+            except StaffManagement.DoesNotExist:
+                # If StaffManagement does not exist for this staff, skip this entry
+                continue
+
+            role_obj = getattr(staff_member, "roleId", None)
+
+            # Fetch maintenance type from MaintenanceStaffRoles (assuming roleId is used here)
+            maintenance_type = "N/A"  # Default if no role is found
+            if role_obj:
+                try:
+                    # Instead of 'id', use 'roleId' to fetch the maintenance staff role
+                    role_details = MaintenanceStaffRoles.objects.get(roleId=role_obj.roleId)
+                    maintenance_type = role_details.maintenanceType if role_details else "N/A"
+                except MaintenanceStaffRoles.DoesNotExist:
+                    maintenance_type = "N/A"
+
+            # Apply additional filters based on staff or assignment attributes
+            if maintenance_staff_id and str(staff.id) != maintenance_staff_id:
+                continue
+            if role_id and (not role_obj or str(role_obj.roleId) != role_id):  # Update to 'roleId'
+                continue
+            if assigned_date and str(assignment.assignedDate.date()) != assigned_date:
+                continue
+            if issue_resolved and str(assignment.issueResolved).lower() != issue_resolved.lower():
+                continue
+
+            # Prepare staff details for the response
+            staff_details = {
+                "maintenanceStaffId": staff.id,
+                "name": staff_member.name,
+                "role": role_obj.roleName if role_obj else "N/A",
+                "contactNumber": staff_member.contactNumber,
+                "maintenanceType": maintenance_type  # Add the maintenance type
+            }
+
+            # Prepare assignment data for the response
+            assignment_data = {
+                "assignmentId": assignment.assignmentId,
+                "assignedDate": assignment.assignedDate,
+                "completionDate": assignment.completionDate,
+                "issueResolved": assignment.issueResolved,
+                "comments": assignment.comments,
+                "requestId": request_obj.requestId,
+                **staff_details
+            }
+
+        # Build the response data in the required format
+        response_data.append({
+            "requestId": request_obj.requestId,
+            "roomId": request_obj.roomId,
+            "issueDescription": request_obj.issueDescription,
+            "priorityLevel": request_obj.priorityLevel,
+            "requestDate": request_obj.requestDate,
+            "status": request_obj.status,
+            "maintenanceAssignment": assignment_data
+        })
+
+    return Response(response_data, status=status.HTTP_200_OK)
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff
+from django.shortcuts import get_object_or_404
+
+
+@api_view(['PUT'])
+def update_maintenance_request(request, requestId):
+    """Handles PUT (update) a maintenance request or assignment using requestId in the URL."""
+
+    # Ensure that requestId is passed and is valid
+    if not requestId:
+        return Response({"error": "requestId is required for updating."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # ✅ Get the Maintenance Request based on requestId from the URL
+    maintenance_request = get_object_or_404(MaintenanceRequest, requestId=requestId)
+
+    # ✅ Update Maintenance Request fields if provided
+    update_fields = []
+    if 'status' in request.data:
+        maintenance_request.status = request.data['status']
+        update_fields.append('status')
+    if 'priorityLevel' in request.data:
+        maintenance_request.priorityLevel = request.data['priorityLevel']
+        update_fields.append('priorityLevel')
+    if 'issueDescription' in request.data:
+        maintenance_request.issueDescription = request.data['issueDescription']
+        update_fields.append('issueDescription')
+
+    if update_fields:
+        maintenance_request.save(update_fields=update_fields)
+
+    # ✅ Check if Maintenance Assignment needs an update
+    assignment = MaintenanceAssignment.objects.filter(requestId=maintenance_request).first()
+    if assignment:
+        update_assignment_fields = []
+        if 'assignedDate' in request.data:
+            assignment.assignedDate = request.data['assignedDate']
+            update_assignment_fields.append('assignedDate')
+        if 'completionDate' in request.data:
+            assignment.completionDate = request.data['completionDate']
+            update_assignment_fields.append('completionDate')
+        if 'issueResolved' in request.data:
+            assignment.issueResolved = request.data['issueResolved']
+            update_assignment_fields.append('issueResolved')
+        if 'maintenanceStaffId' in request.data:
+            try:
+                new_staff = MaintenanceStaff.objects.get(id=request.data['maintenanceStaffId'])
+                assignment.maintenanceStaffId = new_staff
+                update_assignment_fields.append('maintenanceStaffId')
+            except MaintenanceStaff.DoesNotExist:
+                return Response({"error": "Invalid maintenanceStaffId."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if update_assignment_fields:
+            assignment.save(update_fields=update_assignment_fields)
+
+    return Response({"message": "Maintenance request updated successfully."}, status=status.HTTP_200_OK)
