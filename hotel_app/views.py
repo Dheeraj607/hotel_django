@@ -1,9 +1,9 @@
 
 from hotel_app.serializers import RoomSerializer, BookingSerializer, PaymentSerializer, RoomSimpleDetailSerializer, \
-    ExtraServiceSerializer, RefundSerializer
+    ExtraServiceSerializer, RefundSerializer, MultiRoleControlSerializer
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from hotel_app.models import Rooms, Booking, Payment, Customer, ExtraService, Refund
+from hotel_app.models import Rooms, Booking, Payment, Customer, ExtraService, Refund, MultiRoleController
 
 
 @api_view(['GET'])
@@ -612,15 +612,62 @@ def maintenance_role_detail(request, role_id):
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from hotel_app.models import MaintenanceStaff,MaintenanceStaffRoles
-from hotel_app.serializers import MaintenanceStaffSerializer
+from hotel_app.models import MaintenanceStaff
+from hotel_app.serializers import MaintenanceStaffSerializer, MaintenanceStaffNestedSerializer
+# @api_view(['POST', 'GET'])
+# def maintenance_staff_list(request):
+#     if request.method == 'GET':
+#         staff = MaintenanceStaff.objects.all()
+#         serializer = MaintenanceStaffSerializer(staff, many=True)
+#         return Response(serializer.data)
+#
+#     elif request.method == 'POST':
+#         serializer = MaintenanceStaffSerializer(data=request.data)
+#         if serializer.is_valid():
+#             serializer.save()
+#             return Response(serializer.data, status=status.HTTP_201_CREATED)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST', 'GET'])
 def maintenance_staff_list(request):
     if request.method == 'GET':
-        staff = MaintenanceStaff.objects.all()
-        serializer = MaintenanceStaffSerializer(staff, many=True)
-        return Response(serializer.data)
+        staff_queryset = MaintenanceStaff.objects.select_related('staffId', 'roleId')
+
+        # Apply filters
+        role_id = request.GET.get('roleId')
+        staff_id = request.GET.get('staffId')
+        type_id = request.GET.get('typeId')
+
+        if role_id:
+            staff_queryset = staff_queryset.filter(roleId__roleId=role_id)
+        if staff_id:
+            staff_queryset = staff_queryset.filter(staffId__staffId=staff_id)
+        if type_id:
+            staff_queryset = staff_queryset.filter(roleId__typeId__typeId=type_id)
+
+        # Group data by staffId
+        grouped_data = {}
+
+        for obj in staff_queryset:
+            key = obj.staffId.staffId
+            if key not in grouped_data:
+                grouped_data[key] = {
+                    "staffId": obj.staffId.staffId,
+                    "staffName": obj.staffId.name,
+                    "Roles": []
+                }
+
+            role = obj.roleId
+            role_data = {
+                "maintenanceStaffId": obj.id,
+                "roleId": role.roleId,
+                "roleName": role.roleName
+            }
+
+            if role_data not in grouped_data[key]["Roles"]:
+                grouped_data[key]["Roles"].append(role_data)
+
+        return Response(list(grouped_data.values()))
 
     elif request.method == 'POST':
         serializer = MaintenanceStaffSerializer(data=request.data)
@@ -628,6 +675,9 @@ def maintenance_staff_list(request):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
 
 @api_view(['GET', 'PUT'])
 def maintenance_staff_detail(request, id):
@@ -678,6 +728,7 @@ def create_maintenance_request(request):
     assignment_serializer = None
 
     if maintenance_staff_id:
+        print("ghjghghghg")
         try:
             # ✅ Get the MaintenanceStaff instance using maintenanceStaffId
             staff_instance = MaintenanceStaff.objects.get(id=maintenance_staff_id)
@@ -711,38 +762,51 @@ def create_maintenance_request(request):
         "maintenanceAssignment": assignment_serializer.data if maintenance_staff_id else None
     }, status=status.HTTP_201_CREATED)
 
+from rest_framework import generics
+from .models import MaintenanceType
+from .serializers import MaintenanceTypeSerializer
+
+class MaintenanceTypeListView(generics.ListAPIView):
+    queryset = MaintenanceType.objects.all()
+    serializer_class = MaintenanceTypeSerializer
 
 from rest_framework.response import Response
-from rest_framework import status
-from django.db.models import Q
 from rest_framework.decorators import api_view
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement
-
-
-from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.decorators import api_view
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, MaintenanceStaffRoles, MaintenanceType
+from django.core.exceptions import ObjectDoesNotExist
 
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.decorators import api_view
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement
+from rest_framework import status
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, MaintenanceStaffRoles, \
+    MaintenanceType
+from django.core.exceptions import ObjectDoesNotExist
 
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.decorators import api_view
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement
+from rest_framework import status
+from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, MaintenanceStaffRoles, \
+    MaintenanceType
+from django.core.exceptions import ObjectDoesNotExist
 
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.decorators import api_view
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+from rest_framework import status
+from django.core.exceptions import ObjectDoesNotExist
+from .models import MaintenanceRequest, MaintenanceAssignment, MaintenanceType, MaintenanceStaff
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+from rest_framework import status
+from django.core.exceptions import ObjectDoesNotExist
+from .models import MaintenanceRequest, MaintenanceAssignment, MaintenanceType, MaintenanceStaff
 
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.decorators import api_view
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
+from rest_framework import status
+from django.core.exceptions import ObjectDoesNotExist
+from .models import MaintenanceRequest, MaintenanceAssignment, MaintenanceType, MaintenanceStaff
+
 
 @api_view(['GET'])
 def get_maintenance_requests_with_staff(request):
@@ -758,10 +822,10 @@ def get_maintenance_requests_with_staff(request):
     assigned_date = request.GET.get('assignedDate')
     issue_resolved = request.GET.get('issueResolved')
 
-    # Initial query for all maintenance requests
+    # Start with all requests
     maintenance_requests = MaintenanceRequest.objects.all()
 
-    # Apply filters
+    # Filter by request data
     if request_id:
         maintenance_requests = maintenance_requests.filter(requestId=request_id)
     if room_id:
@@ -772,63 +836,58 @@ def get_maintenance_requests_with_staff(request):
         maintenance_requests = maintenance_requests.filter(priorityLevel=priority_level)
 
     response_data = []
+
     for request_obj in maintenance_requests:
         assignment = MaintenanceAssignment.objects.filter(requestId=request_obj).first()
         assignment_data = None
-
+        typeId = request_obj.typeId.typeId
+        typeName = request_obj.typeId.maintenanceTypeName
         if assignment:
-            staff = assignment.maintenanceStaffId  # Foreign Key to MaintenanceStaff
-
-            # staff.staffId should reference the related StaffManagement object
             try:
-                staff_member = staff.staffId  # This should be the related StaffManagement object
-            except StaffManagement.DoesNotExist:
-                # If StaffManagement does not exist for this staff, skip this entry
+                staff = assignment.maintenanceStaffId
+                staff_member = staff.staffId if staff else None
+
+                if not staff_member:
+                    continue
+
+                role_obj = staff_member.roleId if staff_member else None
+
+                # ✅ Get the maintenance type directly from the request's typeId
+                maintenance_type = "N/A"
+                if request_obj.typeId:
+                    maintenance_type = request_obj.typeId.maintenanceTypeName
+
+                # Apply filters
+                if maintenance_staff_id and str(staff.id) != maintenance_staff_id:
+                    continue
+                if role_id and (not role_obj or str(role_obj.roleId) != role_id):
+                    continue
+                if assigned_date and str(assignment.assignedDate.date()) != assigned_date:
+                    continue
+                if issue_resolved and str(assignment.issueResolved).lower() != issue_resolved.lower():
+                    continue
+
+                staff_details = {
+                    "maintenanceStaffId": staff.id,
+                    "maintenanceStaffName": staff_member.name,
+                    "maintenanceStaffRole": role_obj.roleName if role_obj else "N/A",
+                    "contactNumber": staff_member.contactNumber,
+                    "maintenanceType": maintenance_type
+                }
+
+                assignment_data = {
+                    "assignmentId": assignment.assignmentId,
+                    "assignedDate": assignment.assignedDate,
+                    "completionDate": assignment.completionDate,
+                    "issueResolved": assignment.issueResolved,
+                    "comments": assignment.comments,
+                    "requestId": request_obj.requestId,
+                    **staff_details
+                }
+
+            except ObjectDoesNotExist:
                 continue
-
-            role_obj = getattr(staff_member, "roleId", None)
-
-            # Fetch maintenance type from MaintenanceStaffRoles (assuming roleId is used here)
-            maintenance_type = "N/A"  # Default if no role is found
-            if role_obj:
-                try:
-                    # Instead of 'id', use 'roleId' to fetch the maintenance staff role
-                    role_details = MaintenanceStaffRoles.objects.get(roleId=role_obj.roleId)
-                    maintenance_type = role_details.maintenanceType if role_details else "N/A"
-                except MaintenanceStaffRoles.DoesNotExist:
-                    maintenance_type = "N/A"
-
-            # Apply additional filters based on staff or assignment attributes
-            if maintenance_staff_id and str(staff.id) != maintenance_staff_id:
-                continue
-            if role_id and (not role_obj or str(role_obj.roleId) != role_id):  # Update to 'roleId'
-                continue
-            if assigned_date and str(assignment.assignedDate.date()) != assigned_date:
-                continue
-            if issue_resolved and str(assignment.issueResolved).lower() != issue_resolved.lower():
-                continue
-
-            # Prepare staff details for the response
-            staff_details = {
-                "maintenanceStaffId": staff.id,
-                "name": staff_member.name,
-                "role": role_obj.roleName if role_obj else "N/A",
-                "contactNumber": staff_member.contactNumber,
-                "maintenanceType": maintenance_type  # Add the maintenance type
-            }
-
-            # Prepare assignment data for the response
-            assignment_data = {
-                "assignmentId": assignment.assignmentId,
-                "assignedDate": assignment.assignedDate,
-                "completionDate": assignment.completionDate,
-                "issueResolved": assignment.issueResolved,
-                "comments": assignment.comments,
-                "requestId": request_obj.requestId,
-                **staff_details
-            }
-
-        # Build the response data in the required format
+        # Final structure
         response_data.append({
             "requestId": request_obj.requestId,
             "roomId": request_obj.roomId,
@@ -836,7 +895,9 @@ def get_maintenance_requests_with_staff(request):
             "priorityLevel": request_obj.priorityLevel,
             "requestDate": request_obj.requestDate,
             "status": request_obj.status,
-            "maintenanceAssignment": assignment_data
+            "maintenanceAssignment": assignment_data,
+            "typeId": typeId,
+            "typeName": typeName
         })
 
     return Response(response_data, status=status.HTTP_200_OK)
@@ -900,3 +961,144 @@ def update_maintenance_request(request, requestId):
             assignment.save(update_fields=update_assignment_fields)
 
     return Response({"message": "Maintenance request updated successfully."}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def add_roles(request):
+    serializer = MultiRoleControlSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response({"message": "user role added", "data": "inserted"}, status=status.HTTP_201_CREATED)
+    else:
+        return Response({"message": "failed", "error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+def get_role_details(request, *args, **kwargs):
+    staff_id = kwargs.get('id', None)  # This should be the staffManagement.staffId
+
+    try:
+        staff = StaffManagement.objects.get(staffId=staff_id)  # staffId is the actual PK
+    except StaffManagement.DoesNotExist:
+        return Response({"message": "Staff not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    roles = MaintenanceStaff.objects.filter(staffId=staff)  # This now filters correctly
+    output = []
+
+    for role in roles:
+        role_dict = {
+            'staffId': role.staffId.staffId,
+            'staffName': role.staffId.name,
+            'staffRole': role.roleId.roleName,
+            'type': role.roleId.typeId.maintenanceTypeName
+        }
+        output.append(role_dict)
+
+    return Response(output, status=status.HTTP_200_OK)
+
+
+
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import MaintenanceType, MaintenanceStaffRoles, MaintenanceStaff
+@api_view(['GET'])
+def get_staff_by_type(request, *args, **kwargs):
+    try:
+        id = kwargs.get('id', None)
+
+        # Step 1: Get the MaintenanceType
+        maintenance_type = MaintenanceType.objects.get(typeId=id)
+
+        # Step 2: Get all related roles for this MaintenanceType
+        role_ids = MaintenanceStaffRoles.objects.filter(typeId=maintenance_type).values_list('roleId', flat=True)
+
+        # Step 3: Get all staff with those roleIds
+        staff_members = MaintenanceStaff.objects.select_related('staffId', 'roleId').filter(roleId__in=role_ids)
+
+        # Step 4: Build output data
+        output = []
+        for entry in staff_members:
+            staff = entry.staffId
+            role = entry.roleId
+            output.append({
+                "maintenanceStaffId": entry.id,  # ✅ corrected here
+                "staffId": staff.staffId,
+                "name": staff.name,
+                "email": staff.email,
+                "contactNumber": staff.contactNumber,
+                "address": staff.address,
+                "roleId": role.roleId,
+                "roleName": role.get_roleName_display(),
+                "typeId": role.typeId.typeId,
+                "typeName": role.typeId.get_maintenanceTypeName_display()
+            })
+
+        return Response(output, status=status.HTTP_200_OK)
+
+    except MaintenanceType.DoesNotExist:
+        return Response({"error": "Invalid typeId"}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['POST'])
+def modify_assignment(request):
+    assignment_data = {
+        "requestId": request.data.get('requestId', None),  # ✅ Link to Maintenance Request
+        "maintenanceStaffId": request.data.get('staffId', None),  # ✅ Use maintenanceStaffId as FK
+        "issueResolved": False,
+        "comments": request.data.get("comments", "")
+    }
+    assignment_serializer = MaintenanceAssignmentSerializer(data=assignment_data)
+    if assignment_serializer.is_valid():
+        assignment_serializer.save()
+        return Response({"data": assignment_serializer.data}, status=status.HTTP_200_OK)
+    else:
+        return Response({"error": assignment_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import MaintenanceType, MaintenanceStaffRoles, MaintenanceStaff
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import MaintenanceType, MaintenanceStaffRoles, MaintenanceStaff
+
+
+@api_view(['DELETE'])
+def delete_staff_by_type(request, *args, **kwargs):
+    try:
+        # Step 1: Get the MaintenanceType using the id parameter from kwargs
+        type_id = kwargs.get('id', None)
+
+        if not type_id:
+            return Response({"error": "typeId is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Step 2: Get the MaintenanceType instance
+        maintenance_type = MaintenanceType.objects.get(typeId=type_id)
+
+        # Step 3: Get all related roles for this MaintenanceType
+        role_ids = MaintenanceStaffRoles.objects.filter(typeId=maintenance_type).values_list('roleId', flat=True)
+
+        # Step 4: Get all staff with those roleIds
+        staff_members = MaintenanceStaff.objects.select_related('staffId', 'roleId').filter(roleId__in=role_ids)
+
+        # Step 5: Delete all staff for this MaintenanceType and its roles
+        deleted_count = staff_members.delete()[0]  # returns tuple (number of objects deleted, {model: deleted count})
+
+        # Step 6: Return a response based on the delete count
+        if deleted_count > 0:
+            return Response({"message":  "staff roles deleted successfully."},
+                            status=status.HTTP_200_OK)
+        else:
+            return Response({"message": "No staff found to delete for the given MaintenanceType."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+    except MaintenanceType.DoesNotExist:
+        return Response({"error": "Invalid typeId"}, status=status.HTTP_404_NOT_FOUND)
+
+

@@ -169,9 +169,41 @@ class RoomInspection(models.Model):
         return f"Inspection {self.inspectionId} | Booking {self.bookingId} | {self.roomCondition} | {self.status}"
 
 from django.db import models
+# MaintenanceType Model
+class MaintenanceType(models.Model):
+    PLUMBING = 'plumbing'
+    ELECTRICIANING = 'electricianing'
+    CLEANING = 'cleaning'
+    GENERAL_MAINTAINING = 'general_maintaining'
 
+    MAINTENANCE_TYPE_CHOICES = [
+        (PLUMBING, 'Plumbing'),
+        (ELECTRICIANING, 'Electricianing'),
+        (CLEANING, 'Cleaning'),
+        (GENERAL_MAINTAINING, 'General Maintaining'),
+    ]
+
+    typeId = models.AutoField(primary_key=True)
+    maintenanceTypeName = models.CharField(
+        max_length=50,
+        choices=MAINTENANCE_TYPE_CHOICES,
+        unique=True  # Optional: Enforce uniqueness of type
+    )
+
+    class Meta:
+        db_table = 'maintenanceType'
+
+    def __str__(self):
+        return self.get_maintenanceTypeName_display()
+
+
+
+
+from django.db import models
+from hotel_app.models import MaintenanceType  # ✅ Import this only if in separate file
+
+# MaintenanceStaffRoles Model
 class MaintenanceStaffRoles(models.Model):
-    # Role name choices
     ROLE_CHOICES = [
         ('plumber', 'Plumber'),
         ('electrician', 'Electrician'),
@@ -179,23 +211,20 @@ class MaintenanceStaffRoles(models.Model):
         ('general_maintenance', 'General Maintenance'),
     ]
 
-    # Maintenance type choices
-    MAINTENANCE_TYPE_CHOICES = [
-        ('plumbing', 'Plumbing'),
-        ('electricianing', 'Electricianing'),
-        ('cleaning', 'Cleaning'),
-        ('general_maintaining', 'General Maintaining'),
-    ]
-
     roleId = models.AutoField(primary_key=True)
     roleName = models.CharField(max_length=50, choices=ROLE_CHOICES, unique=True)
-    maintenanceType = models.CharField(max_length=50, choices=MAINTENANCE_TYPE_CHOICES)
+
+    # ForeignKey to MaintenanceType
+    typeId = models.ForeignKey(MaintenanceType, on_delete=models.CASCADE, related_name="staffRoles")
 
     class Meta:
         db_table = "maintenanceStaffRoles"
 
     def __str__(self):
-        return f"{self.roleName} - {self.maintenanceType}"
+        return f"{self.get_roleName_display()}"
+
+
+
 
 
 # ✅ Now define StaffManagement AFTER MaintenanceStaffRoles
@@ -218,11 +247,18 @@ class StaffManagement(models.Model):
         db_table = "staffManagement"
 
     def __str__(self):
-        return f"{self.name} ({self.roleId.roleName if self.roleId else 'No Role'})"
+        return f"{self.name}"
+
+
+class MultiRoleController(models.Model):
+    staff = models.ForeignKey(StaffManagement, on_delete=models.CASCADE, related_name='role_controller')
+    staffRole = models.ForeignKey(MaintenanceStaffRoles, on_delete=models.CASCADE, related_name='staff_role')
+
+    def __str__(self):
+        return str(self.staff.name)
 
 
 from django.db import models
-
 
 class MaintenanceStaff(models.Model):
     id = models.AutoField(primary_key=True)
@@ -234,53 +270,70 @@ class MaintenanceStaff(models.Model):
         related_name="maintenance_staff"
     )
 
-    roleId = models.ForeignKey(
+    roleId = models.ForeignKey(  # ✅ Make it a ForeignKey
         'MaintenanceStaffRoles',
         on_delete=models.CASCADE,
         db_column="roleId",
-        related_name="staff_roles"
+        related_name="maintenance_staff"
     )
 
     class Meta:
         db_table = "maintenanceStaff"
 
+
     def __str__(self):
-        return f"{self.staffId.name} - {self.roleId.roleName}"
+        return f"{self.staffId.name}"
 
 
 
+from django.db import models
+from .models import MaintenanceType  # Ensure MaintenanceType is imported
 
 class MaintenanceRequest(models.Model):
-    requestId=models.AutoField(primary_key=True)
-    roomId=models.IntegerField()
-    issueDescription=models.TextField()
-    priorityLevel=models.CharField(max_length=20)
-    choices=[
-        ('Low', 'Low'),
+    requestId = models.AutoField(primary_key=True)
+    roomId = models.IntegerField()
+    issueDescription = models.TextField()
+    priorityLevel = models.CharField(
+        max_length=20,
+        choices=[
+            ('Low', 'Low'),
             ('Medium', 'Medium'),
             ('High', 'High')
-    ]
+        ]
+    )
 
-    requestDate=models.DateTimeField(auto_now_add=True)
-    status=models.CharField(max_length=20,
-        choices=[('Pending','Pending'),
-                ('In Progress','In Progress'),
-                ('Completed','Completed')
+    typeId = models.ForeignKey(  # 👈 New field added
+        MaintenanceType,
+        on_delete=models.CASCADE,
+        related_name="maintenance_requests"
+    )
+
+    requestDate = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('Pending', 'Pending'),
+            ('In Progress', 'In Progress'),
+            ('Completed', 'Completed')
         ],
-        default=('Pending')
+        default='Pending'
     )
 
     class Meta:
-        db_table="maintenanceRequests"
+        db_table = "maintenanceRequests"
+
     def __str__(self):
-        return f"Maintenance Requests {self.requestId} for Room {self.roomId}"
+        return f"Maintenance Request {self.requestId} for Room {self.roomId}"
 
 
+
+from django.db import models
+from .models import MaintenanceRequest, MaintenanceStaff  # Removed MaintenanceType
 
 class MaintenanceAssignment(models.Model):
     assignmentId = models.AutoField(primary_key=True)
     requestId = models.ForeignKey(MaintenanceRequest, on_delete=models.CASCADE, related_name="assignments")
-    maintenanceStaffId = models.ForeignKey(MaintenanceStaff, on_delete=models.CASCADE, related_name="assignments")  # ✅ Correct FK
+    maintenanceStaffId = models.ForeignKey(MaintenanceStaff, on_delete=models.CASCADE, related_name="assignments")
     assignedDate = models.DateTimeField(auto_now_add=True)
     completionDate = models.DateTimeField(null=True, blank=True)
     issueResolved = models.BooleanField(default=False)
@@ -290,7 +343,7 @@ class MaintenanceAssignment(models.Model):
         db_table = "maintenanceAssignments"
 
     def __str__(self):
-        return f"Assignment {self.assignmentId} for Request {self.requestId}"
+        return f"Assignment {self.assignmentId} for Request ID {self.requestId_id}"
 
 
 class CustomerFeedback(models.Model):

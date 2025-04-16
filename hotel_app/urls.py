@@ -1,7 +1,15 @@
 from django.urls import path, include
-from .views import rooms_available, rooms, book_room_and_payment, payment_detail, all_room_details,create_payment_with_extras
+
+from . import views
+from .views import rooms_available, rooms, book_room_and_payment, payment_detail, all_room_details, \
+    create_payment_with_extras, MaintenanceTypeListView, add_roles, get_role_details, get_staff_by_type, \
+    modify_assignment
 from .views import get_all_extra_services,payment_for_service,refund_operations,room_inspection,update_booking,maintenance_role_detail,maintenance_roles_list,maintenance_staff_detail,maintenance_staff_list
 from .views import create_maintenance_request,get_maintenance_requests_with_staff,update_maintenance_request
+
+
+
+
 urlpatterns = [
     path('rooms/', rooms, name='rooms'),
     path('book-room/', book_room_and_payment, name='book-room'),
@@ -14,6 +22,7 @@ urlpatterns = [
     path('refund/', refund_operations, name='refund_operations_create'),
     path('inspections/', room_inspection, name='room_inspection'),
     path('inspections/<int:inspection_id>/', room_inspection, name='room_inspection'),
+    path('maintenance-types/', MaintenanceTypeListView.as_view(), name='maintenance-type-list'),
     path('maintenance-roles/', maintenance_roles_list, name='maintenance_roles_list'),  # GET all & POST
     path('maintenance-roles/<int:role_id>/', maintenance_role_detail, name='maintenance_role_detail'),# GET one & PUT
     path('maintenance-staff/', maintenance_staff_list, name='maintenance_staff_list'),  # POST & GET (all)
@@ -21,5 +30,10 @@ urlpatterns = [
     path('maintenance-request-with-assignment/', create_maintenance_request, name='create-maintenance-request-assignment'),
     path('maintenance-requests-with-staff/', get_maintenance_requests_with_staff, name='get_maintenance_requests_with_staff'),
     path('maintenance-requests/<str:requestId>/', update_maintenance_request, name='update-maintenance-request'),
+    path('add-roles/', add_roles, name='add_multi_role'),
+    path('get-roles/<int:id>', get_role_details, name='get_role_details'),
+    path('get-staffs/<int:id>', get_staff_by_type, name='get_staff_details'),
+    path('modify-assignment/', modify_assignment, name='modify_assignment'),
+    path('delete-staff-by-type/<int:id>/', views.delete_staff_by_type, name='delete_staff_by_type'),
 ]
 

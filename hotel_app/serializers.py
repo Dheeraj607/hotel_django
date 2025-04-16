@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from hotel_app.models import Rooms, Booking, Payment, ExtraService, Customer, Refund
+from hotel_app.models import Rooms, Booking, Payment, ExtraService, Customer, Refund, MultiRoleController
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -391,28 +391,28 @@ class BookingInspectionSerializer(serializers.Serializer):
 
 
 from rest_framework import serializers
+from .models import MaintenanceType
+
+class MaintenanceTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MaintenanceType
+        fields = ['typeId', 'maintenanceTypeName']
+
+
+
+from rest_framework import serializers
 from hotel_app.models import MaintenanceStaffRoles,MaintenanceStaff
+
+from rest_framework import serializers
+from hotel_app.models import MaintenanceStaffRoles, MaintenanceStaff
 
 class MaintenanceStaffRolesSerializer(serializers.ModelSerializer):
     class Meta:
         model = MaintenanceStaffRoles
         fields = '__all__'
 
-from rest_framework import serializers
-from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
-
-from rest_framework import serializers
-from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
-
-from rest_framework import serializers
-from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
-
-from rest_framework import serializers
-from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
 
 
-from rest_framework import serializers
-from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
 from rest_framework import serializers
 from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceStaffRoles
 
@@ -420,9 +420,81 @@ class MaintenanceStaffSerializer(serializers.ModelSerializer):
     staffId = serializers.PrimaryKeyRelatedField(queryset=StaffManagement.objects.all())
     roleId = serializers.PrimaryKeyRelatedField(queryset=MaintenanceStaffRoles.objects.all())
 
+
     class Meta:
         model = MaintenanceStaff
-        fields = ['id', 'staffId', 'roleId']  # No "_id" in response
+        fields = ['id', 'staffId', 'roleId']
+
+    def validate(self, data):
+        staff = data.get('staffId')
+        role = data.get('roleId')
+
+        if MaintenanceStaff.objects.filter(staffId=staff, roleId=role).exists():
+            raise serializers.ValidationError("This staff member already has this role assigned.")
+
+        return data
+
+
+
+
+
+
+    # def create(self, validated_data):
+    #     roles = validated_data.pop('roleId', [])
+    #     staff = MaintenanceStaff.objects.create(**validated_data)
+    #     for role in roles:
+    #         staff.roleId.add(role)  # Add roles one by one
+    #     return staff
+    #
+    # def update(self, instance, validated_data):
+    #     roles = validated_data.pop('roleId', None)
+    #     for attr, value in validated_data.items():
+    #         setattr(instance, attr, value)
+    #     instance.save()
+    #     if roles is not None:
+    #         instance.roleId.clear()
+    #         for role in roles:
+    #             instance.roleId.add(role)
+    #     return instance
+
+
+class MaintenanceStaffNestedSerializer(serializers.ModelSerializer):
+    roleId = serializers.PrimaryKeyRelatedField(
+        queryset=MaintenanceStaffRoles.objects.all(),
+        many=True,
+        write_only=True
+    )
+    role_details = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MaintenanceStaff
+        fields = ['id', 'staffId', 'roleId', 'role_details']
+
+    def get_role_details(self, obj):
+        return [
+            {
+                'roleId': role.roleId,
+                'roleName': role.roleName,
+                'maintenanceType': role.typeId.maintenanceTypeName
+            }
+            for role in obj.roleId.all()
+        ]
+
+    # def create(self, validated_data):
+    #     roles = validated_data.pop('roleId')  # Now this will work
+    #     staff = MaintenanceStaff.objects.create(**validated_data)
+    #     staff.roleId.set(roles)
+    #     return staff
+    #
+    # def update(self, instance, validated_data):
+    #     roles = validated_data.pop('roleId', None)
+    #     for attr, value in validated_data.items():
+    #         setattr(instance, attr, value)
+    #     instance.save()
+    #     if roles is not None:
+    #         instance.roleId.set(roles)
+    #     return instance
+
 
 from rest_framework import serializers
 from .models import StaffManagement, MaintenanceStaffRoles
@@ -445,16 +517,64 @@ from hotel_app.models import MaintenanceRequest, MaintenanceAssignment
 class MaintenanceRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = MaintenanceRequest
-        fields = ['requestId', 'roomId', 'issueDescription', 'priorityLevel', 'requestDate', 'status']
+        fields = ['requestId', 'roomId', 'issueDescription', 'priorityLevel', 'requestDate', 'status', 'typeId',]
         read_only_fields = ['requestId', 'requestDate']
 
+
+from rest_framework import serializers
+from .models import MaintenanceAssignment, MaintenanceRequest, MaintenanceType, MaintenanceStaff
+
+from rest_framework import serializers
+from .models import MaintenanceAssignment
+
+from rest_framework import serializers
+from hotel_app.models import MaintenanceAssignment, MaintenanceStaff, MaintenanceType, StaffManagement, MaintenanceStaffRoles
+
 class MaintenanceAssignmentSerializer(serializers.ModelSerializer):
+    maintenanceStaffName = serializers.SerializerMethodField()
+    maintenanceStaffRole = serializers.SerializerMethodField()
+    maintenanceType = serializers.SerializerMethodField()
+
     class Meta:
         model = MaintenanceAssignment
-        fields = "__all__"
+        fields = [
+            'assignmentId', 'assignedDate', 'completionDate', 'issueResolved',
+            'comments', 'requestId', 'maintenanceStaffId', 'maintenanceStaffName',
+            'maintenanceStaffRole', 'maintenanceType'
+        ]
+        read_only_fields = ['assignmentId', 'assignedDate']
 
-    def validate_staffId(self, value):
-        """Ensure staffId is correctly mapped"""
-        if isinstance(value, MaintenanceStaff):
-            return value.id  # ✅ Return the primary key instead of object
-        return value
+    def get_maintenanceStaffName(self, obj):
+        try:
+            return obj.maintenanceStaffId.staffId.name  # Access name from StaffManagement
+        except AttributeError:
+            return "Unknown Staff"
+
+    def get_maintenanceStaffRole(self, obj):
+        try:
+            return obj.maintenanceStaffId.roleId.roleName  # Access roleName from MaintenanceStaffRoles
+        except AttributeError:
+            return "N/A"
+
+    def get_maintenanceType(self, obj):
+        try:
+            return obj.requestId.typeId.maintenanceTypeName
+        except AttributeError:
+            return "Unknown Maintenance Type"
+
+
+class MultiRoleControlSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MultiRoleController
+        fields = '__all__'
+
+    def validate(self, data):
+        staff = data.get('staff')
+        staffRole = data.get('staffRole')
+
+        if MultiRoleController.objects.filter(staff=staff, staffRole=staffRole).exists():
+            raise serializers.ValidationError("This staff already has the given role assigned.")
+
+        return data
+
+
