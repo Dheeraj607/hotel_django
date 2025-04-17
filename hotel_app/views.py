@@ -999,7 +999,6 @@ def get_role_details(request, *args, **kwargs):
 
 
 
-
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -1068,37 +1067,58 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import MaintenanceType, MaintenanceStaffRoles, MaintenanceStaff
 
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+from rest_framework import status
+from .models import MaintenanceStaff
 
 @api_view(['DELETE'])
-def delete_staff_by_type(request, *args, **kwargs):
+def delete_staff_by_type(request, staffId):
     try:
-        # Step 1: Get the MaintenanceType using the id parameter from kwargs
-        type_id = kwargs.get('id', None)
+        # Step 1: Get the MaintenanceStaff instance by staffId
+        staff_member = MaintenanceStaff.objects.get(staffId=staffId)
 
-        if not type_id:
-            return Response({"error": "typeId is required"}, status=status.HTTP_400_BAD_REQUEST)
+        # Step 2: Delete the staff member
+        staff_member.delete()
 
-        # Step 2: Get the MaintenanceType instance
-        maintenance_type = MaintenanceType.objects.get(typeId=type_id)
+        # Step 3: Return a response
+        return Response({"message": "Staff member deleted successfully."},
+                         status=status.HTTP_200_OK)
 
-        # Step 3: Get all related roles for this MaintenanceType
-        role_ids = MaintenanceStaffRoles.objects.filter(typeId=maintenance_type).values_list('roleId', flat=True)
+    except MaintenanceStaff.DoesNotExist:
+        return Response({"error": "Staff member not found."},
+                         status=status.HTTP_404_NOT_FOUND)
 
-        # Step 4: Get all staff with those roleIds
-        staff_members = MaintenanceStaff.objects.select_related('staffId', 'roleId').filter(roleId__in=role_ids)
 
-        # Step 5: Delete all staff for this MaintenanceType and its roles
-        deleted_count = staff_members.delete()[0]  # returns tuple (number of objects deleted, {model: deleted count})
 
-        # Step 6: Return a response based on the delete count
-        if deleted_count > 0:
-            return Response({"message":  "staff roles deleted successfully."},
-                            status=status.HTTP_200_OK)
-        else:
-            return Response({"message": "No staff found to delete for the given MaintenanceType."},
-                            status=status.HTTP_404_NOT_FOUND)
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import MaintenanceStaff, MaintenanceStaffRoles, StaffManagement
 
-    except MaintenanceType.DoesNotExist:
-        return Response({"error": "Invalid typeId"}, status=status.HTTP_404_NOT_FOUND)
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import StaffManagement
 
+@api_view(['GET'])
+def get_staff_not_in_role(request):
+    role_id = request.query_params.get('roleId')
+
+    if not role_id:
+        return Response({"error": "Missing roleId in query parameters."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Exclude staff who are already assigned to this role
+    unassigned_staff = StaffManagement.objects.exclude(roleId__roleId=role_id)
+
+    data = [
+        {
+            "staff_id": staff.staffId,
+            "staff_name": staff.name,
+            "role": staff.roleId.get_roleName_display()
+        }
+        for staff in unassigned_staff
+    ]
+
+    return Response(data, status=status.HTTP_200_OK)
 

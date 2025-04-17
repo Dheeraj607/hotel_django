@@ -3,7 +3,7 @@ from django.urls import path, include
 from . import views
 from .views import rooms_available, rooms, book_room_and_payment, payment_detail, all_room_details, \
     create_payment_with_extras, MaintenanceTypeListView, add_roles, get_role_details, get_staff_by_type, \
-    modify_assignment
+    modify_assignment, get_staff_not_in_role
 from .views import get_all_extra_services,payment_for_service,refund_operations,room_inspection,update_booking,maintenance_role_detail,maintenance_roles_list,maintenance_staff_detail,maintenance_staff_list
 from .views import create_maintenance_request,get_maintenance_requests_with_staff,update_maintenance_request
 
@@ -34,6 +34,7 @@ urlpatterns = [
     path('get-roles/<int:id>', get_role_details, name='get_role_details'),
     path('get-staffs/<int:id>', get_staff_by_type, name='get_staff_details'),
     path('modify-assignment/', modify_assignment, name='modify_assignment'),
-    path('delete-staff-by-type/<int:id>/', views.delete_staff_by_type, name='delete_staff_by_type'),
+    path('delete-staff-by-type/<int:staffId>/', views.delete_staff_by_type, name='delete_staff_by_type'),
+    path('get_staff_not_in_role/', get_staff_not_in_role, name='get_staff_not_in_role'),
 ]
 
