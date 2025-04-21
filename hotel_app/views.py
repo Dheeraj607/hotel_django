@@ -669,14 +669,18 @@ def maintenance_staff_list(request):
 
         return Response(list(grouped_data.values()))
 
+
+
     elif request.method == 'POST':
+
         serializer = MaintenanceStaffSerializer(data=request.data)
+
         if serializer.is_valid():
             serializer.save()
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 
 
 @api_view(['GET', 'PUT'])
@@ -1072,53 +1076,84 @@ from rest_framework.decorators import api_view
 from rest_framework import status
 from .models import MaintenanceStaff
 
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from hotel_app.models import MaintenanceStaff
+
 @api_view(['DELETE'])
 def delete_staff_by_type(request, staffId):
     try:
-        # Step 1: Get the MaintenanceStaff instance by staffId
-        staff_member = MaintenanceStaff.objects.get(staffId=staffId)
+        # Step 1: Filter all MaintenanceStaff entries with the given staffId
+        staff_members = MaintenanceStaff.objects.filter(staffId=staffId)
 
-        # Step 2: Delete the staff member
-        staff_member.delete()
+        if not staff_members.exists():
+            return Response({"error": "Staff member not found."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        # Step 2: Delete all matching staff members
+        deleted_count = staff_members.delete()[0]
 
         # Step 3: Return a response
-        return Response({"message": "Staff member deleted successfully."},
-                         status=status.HTTP_200_OK)
+        return Response({"message": f" staff assignment(s) deleted successfully."},
+                        status=status.HTTP_200_OK)
 
-    except MaintenanceStaff.DoesNotExist:
-        return Response({"error": "Staff member not found."},
-                         status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-
+from .models import StaffManagement, MaintenanceStaff
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from .models import MaintenanceStaff, MaintenanceStaffRoles, StaffManagement
-
+from django.db.models import Q
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from .models import StaffManagement
+from hotel_app.models import MaintenanceStaff
+from hotel_app.serializers import MaintenanceStaffSerializer
+
+from rest_framework import status
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from hotel_app.models import MaintenanceStaff, MaintenanceStaffRoles
+
+from rest_framework import status
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from hotel_app.models import MaintenanceStaff, MaintenanceStaffRoles
 
 @api_view(['GET'])
-def get_staff_not_in_role(request):
-    role_id = request.query_params.get('roleId')
+def get_staff_not_in_role(request, roleId):
+    try:
+        # Step 1: Find all staff members
+        maintenance_staff = MaintenanceStaff.objects.select_related('staffId', 'roleId')
 
-    if not role_id:
-        return Response({"error": "Missing roleId in query parameters."}, status=status.HTTP_400_BAD_REQUEST)
+        # Step 2: Prepare unique staff (avoiding duplicates if staff has multiple roles)
+        seen = set()
+        output = []
 
-    # Exclude staff who are already assigned to this role
-    unassigned_staff = StaffManagement.objects.exclude(roleId__roleId=role_id)
+        for staff in maintenance_staff:
+            # Step 3: Exclude staff who have the selected role (e.g., Plumber)
+            if staff.roleId.roleId == roleId:
+                continue
 
-    data = [
-        {
-            "staff_id": staff.staffId,
-            "staff_name": staff.name,
-            "role": staff.roleId.get_roleName_display()
-        }
-        for staff in unassigned_staff
-    ]
+            # Step 4: Check if the staff has the selected role, if so, exclude them from the result
+            if staff.staffId.staffId not in seen:
+                # Step 5: Exclude staff having the selected role entirely (even if they have other roles)
+                # This means, if the staff has the role we are excluding (e.g., Plumber), skip them.
+                if not MaintenanceStaff.objects.filter(staffId=staff.staffId, roleId=roleId).exists():
+                    seen.add(staff.staffId.staffId)
+                    output.append({
+                        "staffId": staff.staffId.staffId,
+                        "staffName": staff.staffId.name,  # Staff name
+                        "roleName": staff.roleId.get_roleName_display(),  # Role name
+                    })
 
-    return Response(data, status=status.HTTP_200_OK)
+        # Step 6: Return the response with the list of staff who don't have the selected role
+        return Response(output, status=status.HTTP_200_OK)
 
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

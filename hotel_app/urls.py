@@ -35,6 +35,6 @@ urlpatterns = [
     path('get-staffs/<int:id>', get_staff_by_type, name='get_staff_details'),
     path('modify-assignment/', modify_assignment, name='modify_assignment'),
     path('delete-staff-by-type/<int:staffId>/', views.delete_staff_by_type, name='delete_staff_by_type'),
-    path('get_staff_not_in_role/', get_staff_not_in_role, name='get_staff_not_in_role'),
+    path('get_staff_not_in_role/<int:roleId>/', get_staff_not_in_role, name='get_staff_not_in_role'),
 ]
 
