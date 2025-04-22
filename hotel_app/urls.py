@@ -3,7 +3,7 @@ from django.urls import path, include
 from . import views
 from .views import rooms_available, rooms, book_room_and_payment, payment_detail, all_room_details, \
     create_payment_with_extras, MaintenanceTypeListView, add_roles, get_role_details, get_staff_by_type, \
-    modify_assignment, get_staff_not_in_role
+    modify_assignment, get_staff_not_in_role, create_checkout, get_all_extra_service_categories, get_category_name
 from .views import get_all_extra_services,payment_for_service,refund_operations,room_inspection,update_booking,maintenance_role_detail,maintenance_roles_list,maintenance_staff_detail,maintenance_staff_list
 from .views import create_maintenance_request,get_maintenance_requests_with_staff,update_maintenance_request
 
@@ -36,5 +36,11 @@ urlpatterns = [
     path('modify-assignment/', modify_assignment, name='modify_assignment'),
     path('delete-staff-by-type/<int:staffId>/', views.delete_staff_by_type, name='delete_staff_by_type'),
     path('get_staff_not_in_role/<int:roleId>/', get_staff_not_in_role, name='get_staff_not_in_role'),
+    path('taxes/', views.taxes_list_create, name='taxes_list_create'),  # GET all Taxes / POST create a new Tax
+    path('taxes/update/<int:taxId>/', views.update_tax, name='update_tax'),
+    path('checkout/create/', create_checkout, name='create-checkout'),
+    path('extra-service-categories/', get_all_extra_service_categories, name='get_extra_service_categories'),
+    path('get-category-name/<int:service_id>/', get_category_name, name='get_category_name'),
 ]
+
 

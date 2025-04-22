@@ -23,15 +23,17 @@ class RoomSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class ExtraServiceSerializer(serializers.ModelSerializer):
-    payment_details = serializers.SerializerMethodField()
-    bookingId=serializers.IntegerField(required=False, allow_null=True)
+    payment_details = serializers.SerializerMethodField()  # This will retrieve related payment details
+    bookingId = serializers.IntegerField(required=False, allow_null=True)
 
     class Meta:
         model = ExtraService
-        fields = ('serviceId', 'serviceName','bookingId','serviceCost', 'createdAt', 'payment_details')
+        fields = ['serviceId', 'bookingId', 'serviceDetails', 'serviceCost', 'createdAt', 'paymentStatus', 'categoryId', 'payment_details']
 
     def get_payment_details(self, obj):
+        # Fetch related payments using the serviceId
         payments = Payment.objects.filter(serviceId=obj.serviceId)
+        # Serialize the related payments using PaymentSimpleSerializer
         return PaymentSimpleSerializer(payments, many=True).data
 
 
@@ -153,7 +155,13 @@ class BookingSerializer(serializers.ModelSerializer):
 
         # ✅ Create Payment if provided
         if payment_data:
-            Payment.objects.create(bookingId=booking.bookingId, **payment_data)  # Fix here ✅
+            # If paymentRemarks not provided, add default remarks based on conditions
+            if not payment_data.get("paymentRemarks"):
+                if not payment_data.get("serviceId") and not payment_data.get("inspectionId"):
+                    payment_data["paymentRemarks"] = "Check-in Advance"
+
+            # Create the payment object linked to the booking
+            Payment.objects.create(bookingId=booking.bookingId, **payment_data)
 
         return booking
 
@@ -176,6 +184,12 @@ class BookingSerializer(serializers.ModelSerializer):
         # ✅ Handle payment updates
         payment_data = validated_data.pop("payment", None)
         if payment_data:
+            # If paymentRemarks not provided, add default remarks based on conditions
+            if not payment_data.get("paymentRemarks"):
+                if not payment_data.get("serviceId") and not payment_data.get("inspectionId"):
+                    payment_data["paymentRemarks"] = "Check-in Advance"
+
+            # Update or create payment
             Payment.objects.update_or_create(
                 bookingId=instance.bookingId,
                 defaults=payment_data
@@ -187,6 +201,7 @@ class BookingSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
+
 
 
 # Booking simple detail serializer (for output)
@@ -287,7 +302,7 @@ class PaymentExtraInputSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = ['paymentId', 'serviceId', 'bookingId', 'amount', 'paymentMethod',
-                  'transactionId', 'paymentStatus', 'paymentType', 'paymentDate']
+                  'transactionId', 'paymentStatus', 'paymentType', 'paymentDate','paymentRemarks']
 
     def create(self, validated_data):
         return Payment.objects.create(**validated_data)
@@ -578,3 +593,68 @@ class MultiRoleControlSerializer(serializers.ModelSerializer):
         return data
 
 
+from rest_framework import serializers
+from hotel_app.models import Taxes, ExtraServiceCategory
+
+class TaxesSerializer(serializers.ModelSerializer):
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=ExtraServiceCategory.objects.all(),
+        required=False,
+        allow_null=True  # ✅ This allows null value for 'Rent'
+    )
+
+    class Meta:
+        model = Taxes
+        fields = ['taxId', 'type', 'category', 'stateGST', 'centralGST']
+
+
+
+from rest_framework import serializers
+from .models import Checkout
+
+class CheckoutSerializer(serializers.ModelSerializer):
+    totalDaysStayed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Checkout
+        fields = [
+            "checkoutId",
+            "roomNo",
+            "roomType",
+            "checkinDate",
+            "checkinTime",
+            "extraserviceTotalAmount",
+            "extraserviceAlreadyPaid",
+            "extraservicePendingAmount",
+            "checkoutDate",
+            "checkoutTime",
+            "totalDaysStayed",  # 👈 Placed right after checkoutTime
+            "totalRentToBePaid",
+            "checkinAdvance",
+            "balanceRent",
+            "damageCost",
+            "discount",
+            "stateGST",
+            "centralGST",
+            "totalAmountToBePaid",
+            "finalAmount",
+            "paymentStatus",
+            "paymentMethod",
+            "paymentType",
+            "paymentDate",
+        ]
+
+    def get_totalDaysStayed(self, obj):
+        return obj.totalDaysStayed
+
+
+
+
+# serializers.py
+from rest_framework import serializers
+from .models import ExtraServiceCategory
+
+class ExtraServiceCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExtraServiceCategory
+        fields = ['categoryId', 'categoryName']

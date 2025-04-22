@@ -3,7 +3,8 @@ from hotel_app.serializers import RoomSerializer, BookingSerializer, PaymentSeri
     ExtraServiceSerializer, RefundSerializer, MultiRoleControlSerializer
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from hotel_app.models import Rooms, Booking, Payment, Customer, ExtraService, Refund, MultiRoleController
+from hotel_app.models import Rooms, Booking, Payment, Customer, ExtraService, Refund, MultiRoleController, \
+    ExtraServiceCategory
 
 
 @api_view(['GET'])
@@ -237,6 +238,15 @@ def update_payment_status(service_id):
         extra_service.save()
     except ExtraService.DoesNotExist:
         pass  # Handle missing ExtraService gracefully
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Booking, ExtraService, ExtraServiceCategory, Payment
+from .serializers import ExtraServiceSerializer, PaymentExtraInputSerializer
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Booking, ExtraService, Payment, ExtraServiceCategory
+from .serializers import ExtraServiceSerializer, PaymentExtraInputSerializer
 
 @api_view(['POST'])
 def create_payment_with_extras(request):
@@ -260,28 +270,48 @@ def create_payment_with_extras(request):
     created_services = []
 
     for extra_service_data in extra_services_data:
-        service_name = extra_service_data.get("serviceName")
+        service_details = extra_service_data.get("serviceName")  # Renamed from serviceName to serviceDetails
         service_cost = extra_service_data.get("serviceCost")
         payment_data = extra_service_data.pop("payment", None)
 
         # ✅ Assign bookingId (matching the model field name)
         extra_service_data["bookingId"] = booking.bookingId  # Use `bookingId` not `booking`
 
+        # Handle categoryId from ExtraServiceCategory
+        category_id = extra_service_data.get("categoryId", None)  # We expect categoryId to be numeric now
+        category = None
+
+        if category_id:
+            try:
+                # Fetch category from ExtraServiceCategory by categoryId
+                category = ExtraServiceCategory.objects.get(categoryId=category_id)
+            except ExtraServiceCategory.DoesNotExist:
+                return Response({"error": f"ExtraServiceCategory with categoryId {category_id} not found."}, status=404)
+
+        if category:
+            extra_service_data["categoryId"] = category.categoryId  # Set categoryId to the category's categoryId
+
+        # Serialize the extra service data
         extra_service_serializer = ExtraServiceSerializer(data=extra_service_data)
         if extra_service_serializer.is_valid():
-            extra_service = extra_service_serializer.save()  # No need to pass booking explicitly
+            extra_service = extra_service_serializer.save()  # Save the new extra service
 
             # ✅ Process Payment if provided
             if payment_data:
                 payment_data["serviceId"] = extra_service.serviceId
-                payment_data["bookingId"] = booking.bookingId  # ✅ Ensure bookingId is assigned
+                payment_data["bookingId"] = booking.bookingId  # Ensure bookingId is assigned
+
+                # Set paymentRemarks to "Extra Service" when payment is made for an extra service
+                payment_data["paymentRemarks"] = "Extra Service"
+
                 payment_serializer = PaymentExtraInputSerializer(data=payment_data)
 
                 if payment_serializer.is_valid():
-                    payment_serializer.save()
+                    payment_serializer.save()  # Save the payment
                 else:
                     return Response(payment_serializer.errors, status=400)
 
+            # Update the payment status (optional depending on your implementation)
             update_payment_status(extra_service.serviceId)
             created_services.append(extra_service_serializer.data)
         else:
@@ -1102,22 +1132,8 @@ def delete_staff_by_type(request, staffId):
         return Response({"error": str(e)},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-from .models import StaffManagement, MaintenanceStaff
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-from django.db.models import Q
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-from hotel_app.models import MaintenanceStaff
+from .models import StaffManagement
 from hotel_app.serializers import MaintenanceStaffSerializer
-
-from rest_framework import status
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from hotel_app.models import MaintenanceStaff, MaintenanceStaffRoles
-
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -1157,3 +1173,145 @@ def get_staff_not_in_role(request, roleId):
         import traceback
         print(traceback.format_exc())
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from hotel_app.models import Taxes
+from hotel_app.serializers import TaxesSerializer
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from hotel_app.models import Taxes
+from hotel_app.serializers import TaxesSerializer
+
+
+@api_view(['GET', 'POST'])
+def taxes_list_create(request):
+    if request.method == 'GET':
+        # If taxId is provided in the query parameters, fetch the specific tax
+        taxId = request.query_params.get('taxId')
+        if taxId:
+            try:
+                tax = Taxes.objects.get(taxId=taxId)
+                serializer = TaxesSerializer(tax)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            except Taxes.DoesNotExist:
+                return Response({"error": "Tax not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Otherwise, return a list of all taxes
+        taxes = Taxes.objects.all()
+        serializer = TaxesSerializer(taxes, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    if request.method == 'POST':
+        # If the type is "Extra Service", category is required
+        type = request.data.get('type')
+
+        # If type is "Rent", ensure that category is null
+        if type == "Rent":
+            request.data['category'] = None  # Explicitly set category to null
+
+        if type == "Extra Service" and not request.data.get('category'):
+            return Response({"error": "Category is required for Extra Service tax type."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Serialize and save the new tax
+        serializer = TaxesSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from hotel_app.models import Taxes
+from hotel_app.serializers import TaxesSerializer
+
+
+@api_view(['PUT'])
+def update_tax(request, taxId):
+    try:
+        tax = Taxes.objects.get(taxId=taxId)
+    except Taxes.DoesNotExist:
+        return Response({"error": "Tax not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    # Validate that category is provided if type is "Extra Service"
+    type = request.data.get('type')
+    if type == "Extra Service" and not request.data.get('category'):
+        return Response({"error": "Category is required for Extra Service tax type."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    serializer = TaxesSerializer(tax, data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from hotel_app.models import Checkout
+from hotel_app.serializers import CheckoutSerializer
+
+
+@api_view(['POST'])
+def create_checkout(request):
+    serializer = CheckoutSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response({
+            "message": "Checkout created successfully.",
+            "data": serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+# views.py
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import ExtraServiceCategory
+from .serializers import ExtraServiceCategorySerializer
+
+@api_view(['GET'])
+def get_all_extra_service_categories(request):
+    categories = ExtraServiceCategory.objects.all()
+    serializer = ExtraServiceCategorySerializer(categories, many=True)
+    return Response(serializer.data)
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import ExtraService
+
+
+@api_view(['GET'])
+def get_category_name(request, service_id):
+    try:
+        # Fetch the extra service with the given serviceId
+        service = ExtraService.objects.get(serviceId=service_id)
+
+        # Get the category related to the service
+        category = service.categoryId  # This is the ForeignKey field
+
+        if category:
+            # Return the category name
+            return Response({'categoryName': category.categoryName}, status=status.HTTP_200_OK)
+        else:
+            return Response({'error': 'Category not found for the service'}, status=status.HTTP_404_NOT_FOUND)
+
+    except ExtraService.DoesNotExist:
+        return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

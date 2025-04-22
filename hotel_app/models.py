@@ -51,10 +51,15 @@ class Booking(models.Model):
         return f"Booking {self.bookingId} for customer {self.customerId}"
 
 
+from django.db import models
+from datetime import datetime
+
+
 class Payment(models.Model):
     paymentId = models.AutoField(primary_key=True)
     bookingId = models.IntegerField()  # Set after booking is created.
     amount = models.FloatField(null=True, blank=True)
+
     paymentMethod = models.CharField(
         max_length=50,
         null=True,
@@ -66,23 +71,44 @@ class Payment(models.Model):
             ('Online', 'Online')
         ]
     )
+
     transactionId = models.CharField(max_length=100, null=True, blank=True)
+
     paymentStatus = models.CharField(
         null=True,
         blank=True,
         max_length=20,
         choices=[('Paid', 'Paid'), ('Pending', 'Pending')]
     )
+
     createdAt = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     paymentType = models.CharField(max_length=50, null=True, blank=True)
     paymentDate = models.DateTimeField(default=datetime.now, null=True, blank=True)
+
     serviceId = models.IntegerField(null=True, blank=True)
+
     inspectionId = models.ForeignKey(
-        'RoomInspection',  # Reference to RoomInspection model
-        on_delete=models.SET_NULL,  # If the inspection is deleted, set to NULL
+        'RoomInspection',
+        on_delete=models.SET_NULL,
         null=True,
         blank=True
     )
+
+    # ✅ New Fields
+    paymentRemarks = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        choices=[
+            ('Check-in Advance', 'Check-in Advance'),
+            ('Extra Service', 'Extra Service'),
+            ('Checkout', 'Checkout')
+        ]
+    )
+
+    stateGST = models.FloatField(null=True, blank=True)
+    centralGST = models.FloatField(null=True, blank=True)
+    totalAmount = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = "paymentsTable"
@@ -93,9 +119,25 @@ class Payment(models.Model):
     @property
     def extra_service_total(self):
         from .models import ExtraService
-        services=ExtraService.objects.filter(bookingId=self.bookingId)
+        services = ExtraService.objects.filter(bookingId=self.bookingId)
         return sum([s.serviceCost for s in services])
 
+
+from django.db import models
+
+class ExtraServiceCategory(models.Model):
+    categoryId = models.AutoField(primary_key=True)
+    categoryName = models.CharField(max_length=100, unique=True)
+
+    class Meta:
+        db_table = "extraServiceCategories"
+
+    def __str__(self):
+        return self.categoryName
+
+
+
+from django.db import models
 
 class ExtraService(models.Model):
     PAYMENT_STATUS_CHOICES = [
@@ -106,19 +148,30 @@ class ExtraService(models.Model):
 
     serviceId = models.AutoField(primary_key=True)
     bookingId = models.IntegerField()
-    serviceName = models.CharField(max_length=100)
+    serviceDetails = models.CharField(max_length=100)
     serviceCost = models.FloatField()
     createdAt = models.DateTimeField(auto_now_add=True)
+
     paymentStatus = models.CharField(
         max_length=15,
         choices=PAYMENT_STATUS_CHOICES,
         default='Unpaid'
     )
 
+    # ✅ New Foreign Key to ExtraServiceCategory
+    categoryId = models.ForeignKey(
+        'ExtraServiceCategory',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
     class Meta:
-        db_table = "extraServices" 
+        db_table = "extraServices"
+
     def __str__(self):
-        return f"Service {self.serviceId}: {self.serviceName} - Cost: {self.serviceCost}"
+        return f"Service {self.serviceId}: {self.serviceDetails} - Cost: {self.serviceCost}"
+
         
 
 
@@ -346,6 +399,128 @@ class MaintenanceAssignment(models.Model):
         return f"Assignment {self.assignmentId} for Request ID {self.requestId_id}"
 
 
+from django.db import models
+
+class Taxes(models.Model):
+    TAX_TYPE_CHOICES = [
+        ('Rent', 'Rent'),
+        ('Extra Service', 'Extra Service'),
+    ]
+
+    taxId = models.AutoField(primary_key=True)
+
+    type = models.CharField(
+        max_length=20,
+        choices=TAX_TYPE_CHOICES
+    )
+
+    # This will be NULL when type is 'Rent'
+    category = models.ForeignKey(
+        'ExtraServiceCategory',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
+    stateGST = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        help_text="State GST in percentage"
+    )
+
+    centralGST = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        help_text="Central GST in percentage"
+    )
+
+    class Meta:
+        db_table = "taxes"
+
+    def __str__(self):
+        if self.type == 'Rent':
+            return f"{self.type} Tax - SGST: {self.stateGST}%, CGST: {self.centralGST}%"
+        return f"{self.type} - {self.category} Tax - SGST: {self.stateGST}%, CGST: {self.centralGST}%"
+
+
+from django.db import models
+from datetime import datetime, date
+
+class Checkout(models.Model):
+    PAYMENT_STATUS_CHOICES = [
+        ('Paid', 'Paid'),
+        ('Pending', 'Pending'),
+    ]
+
+    PAYMENT_METHOD_CHOICES = [
+        ('Credit Card', 'Credit Card'),
+        ('Cash', 'Cash'),
+        ('UPI', 'UPI'),
+        ('Online', 'Online'),
+    ]
+
+    checkoutId = models.AutoField(primary_key=True)
+
+    roomNo = models.CharField(max_length=20)
+    roomType = models.CharField(max_length=50)
+
+    checkinDate = models.DateField()
+    checkinTime = models.TimeField()
+
+    extraserviceTotalAmount = models.FloatField(default=0.0)
+    extraserviceAlreadyPaid = models.FloatField(default=0.0)
+    extraservicePendingAmount = models.FloatField(default=0.0)
+
+    checkoutDate = models.DateField()
+    checkoutTime = models.TimeField()
+
+    totalRentToBePaid = models.FloatField(default=0.0)
+    checkinAdvance = models.FloatField(default=0.0)
+    balanceRent = models.FloatField(default=0.0)
+
+    damageCost = models.FloatField(default=0.0)
+
+    discount = models.CharField(
+        max_length=20,
+        help_text="Enter % (e.g., 10%) or amount (e.g., 500)",
+        null=True,
+        blank=True
+    )
+
+    stateGST = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    centralGST = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+
+    totalAmountToBePaid = models.FloatField(default=0.0)  # damage + rent + extra
+    finalAmount = models.FloatField(default=0.0)  # after applying discount and GST
+
+    paymentStatus = models.CharField(
+        max_length=10,
+        choices=PAYMENT_STATUS_CHOICES,
+        default='Pending'
+    )
+
+    paymentMethod = models.CharField(
+        max_length=50,
+        choices=PAYMENT_METHOD_CHOICES,
+        null=True,
+        blank=True
+    )
+
+    paymentType = models.CharField(max_length=50, null=True, blank=True)
+    paymentDate = models.DateTimeField(default=datetime.now, null=True, blank=True)
+
+    class Meta:
+        db_table = "checkout"
+
+    def __str__(self):
+        return f"Checkout for Room {self.roomNo} on {self.checkoutDate}"
+
+    @property
+    def totalDaysStayed(self):
+        return (self.checkoutDate - self.checkinDate).days or 1  # At least 1 day
+
+
+
 class CustomerFeedback(models.Model):
     feedbackId = models.AutoField(primary_key=True)
     customerId = models.IntegerField()
@@ -359,29 +534,37 @@ class CustomerFeedback(models.Model):
         return f"Feedback {self.feedbackId} from Customer {self.customerId}"
 
 
+from django.db import models
+
 class Invoices(models.Model):
-    invoiceId=models.AutoField(primary_key=True)
-    bookingId=models.IntegerField()
-    invoiceNumber=models.CharField(max_length=100,unique=True)
-    roomCharge=models.FloatField()
-    extraServices=models.FloatField(null=True,blank=True)
-    taxes=models.FloatField(null=True,blank=True)
-    totalAmount=models.FloatField()
-    amountPaid=models.FloatField()
-    pendingAmount=models.FloatField(null=True,blank=True)
-    paymentMode=models.CharField(max_length=50,
-       choices=[('Credit Card', 'Credit Card'),
-                ('Cash', 'Cash'),
-                ('UPI', 'UPI'),
-                ('Online', 'Online')
-       ])
-    transactionId=models.CharField(max_length=100,null=True,blank=True)
-    createdAt=models.DateTimeField(auto_now_add=True)
+    invoiceId = models.AutoField(primary_key=True)
+    bookingId = models.IntegerField()
+    invoiceNumber = models.CharField(max_length=100, unique=True)
+
+    amount = models.FloatField()  # replaces roomCharge, extraServices, amountPaid
+    taxes = models.FloatField(null=True, blank=True)
+
+    totalAmount = models.FloatField()  # amount + taxes
+    pendingAmount = models.FloatField(null=True, blank=True)
+
+    paymentMode = models.CharField(
+        max_length=50,
+        choices=[
+            ('Credit Card', 'Credit Card'),
+            ('Cash', 'Cash'),
+            ('UPI', 'UPI'),
+            ('Online', 'Online')
+        ]
+    )
+
+    transactionId = models.CharField(max_length=100, null=True, blank=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+
     class Meta:
-        db_table="invoicesTable"
+        db_table = "invoicesTable"
+
     def __str__(self):
         return f"Invoice {self.invoiceNumber} for Booking {self.bookingId}"
-
 
 
 
