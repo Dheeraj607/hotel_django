@@ -1,6 +1,6 @@
 
 from hotel_app.serializers import RoomSerializer, BookingSerializer, PaymentSerializer, RoomSimpleDetailSerializer, \
-    ExtraServiceSerializer, RefundSerializer, MultiRoleControlSerializer
+    ExtraServiceSerializer, RefundSerializer, MultiRoleControlSerializer, PaymentCheckoutSerializer
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from hotel_app.models import Rooms, Booking, Payment, Customer, ExtraService, Refund, MultiRoleController, \
@@ -14,8 +14,19 @@ def rooms_available(request):
     return Response(serializer.data)
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from hotel_app.models import Rooms, Booking, Payment, Customer
-from hotel_app.serializers import BookingSerializer, PaymentSerializer, CustomerSerializer
+from datetime import datetime
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Rooms, Booking, Payment
+from .serializers import BookingSerializer, PaymentSerializer
+
+from datetime import datetime
+import pytz
+
+from datetime import datetime
+import pytz
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
 
 @api_view(['POST'])
 def book_room_and_payment(request):
@@ -32,6 +43,21 @@ def book_room_and_payment(request):
     if room.status.strip().lower() not in ["available", "unoccupied"]:
         return Response({"error": "Room is not available."}, status=400)
 
+    # Extract check-in time from the request
+    check_in_time_str = request.data.get('checkInTime')
+    if not check_in_time_str:
+        return Response({"error": "checkInTime is required."}, status=400)
+
+    try:
+        # Parse checkInTime in 12-hour format with AM/PM
+        check_in_time = datetime.strptime(check_in_time_str, "%I:%M %p")
+        # Assuming the time is in UTC, convert to IST
+        india_tz = pytz.timezone('Asia/Kolkata')
+        check_in_time = india_tz.localize(check_in_time)
+    except ValueError:
+        return Response({"error": "Invalid checkInTime format."}, status=400)
+
+    # Serialize the booking data
     serializer = BookingSerializer(data=request.data)
     if serializer.is_valid():
         booking = serializer.save()
@@ -39,9 +65,16 @@ def book_room_and_payment(request):
         # Update room status to "Occupied" after successful booking
         room.status = "Occupied"
         room.save()
+
+        # Prepare payment data with checkInTime
+        # payment_data = request.data.get('payment', {})
+        # payment_data['bookingId'] = booking.bookingId  # Link payment to the created booking
+        # payment_data['paymentRemarks'] = payment_data.get('paymentRemarks', 'Check-in Advance')
+        # # Create the payment object with the provided data
+        # Payment.objects.create(**payment_data)
+
         return Response(serializer.data, status=201)
     else:
-        print("Serializer Errors:", serializer.errors)  # Debugging
         return Response(serializer.errors, status=400)
 
 
@@ -247,80 +280,93 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import Booking, ExtraService, Payment, ExtraServiceCategory
 from .serializers import ExtraServiceSerializer, PaymentExtraInputSerializer
-
 @api_view(['POST'])
 def create_payment_with_extras(request):
+    print("Received Data:", request.data)
     booking_id = request.data.get("bookingId")
     extra_services_data = request.data.get("extraServices", [])
 
-    # ✅ Validate bookingId
     if not booking_id:
         return Response({"error": "bookingId is required."}, status=400)
 
-    # ✅ Ensure booking exists
     try:
         booking = Booking.objects.get(bookingId=booking_id)
     except Booking.DoesNotExist:
         return Response({"error": f"Booking with ID {booking_id} not found."}, status=404)
 
-    # ✅ Validate extraServices list
+    print("Booking Data:", booking)
+    print("Extra Services Data:", extra_services_data)
+
     if not isinstance(extra_services_data, list) or not extra_services_data:
         return Response({"error": "extraServices must be a non-empty list."}, status=400)
 
     created_services = []
 
     for extra_service_data in extra_services_data:
-        service_details = extra_service_data.get("serviceName")  # Renamed from serviceName to serviceDetails
-        service_cost = extra_service_data.get("serviceCost")
+        service_cost = float(extra_service_data.get("serviceCost") or 0.0)
         payment_data = extra_service_data.pop("payment", None)
 
-        # ✅ Assign bookingId (matching the model field name)
-        extra_service_data["bookingId"] = booking.bookingId  # Use `bookingId` not `booking`
+        extra_service_data["bookingId"] = booking.bookingId
 
-        # Handle categoryId from ExtraServiceCategory
-        category_id = extra_service_data.get("categoryId", None)  # We expect categoryId to be numeric now
+        category_id = extra_service_data.get("categoryId", None)
         category = None
 
         if category_id:
             try:
-                # Fetch category from ExtraServiceCategory by categoryId
                 category = ExtraServiceCategory.objects.get(categoryId=category_id)
             except ExtraServiceCategory.DoesNotExist:
                 return Response({"error": f"ExtraServiceCategory with categoryId {category_id} not found."}, status=404)
 
         if category:
-            extra_service_data["categoryId"] = category.categoryId  # Set categoryId to the category's categoryId
+            extra_service_data["categoryId"] = category.categoryId
 
-        # Serialize the extra service data
+        print(f"Assigned categoryId: {extra_service_data['categoryId']}")
+
         extra_service_serializer = ExtraServiceSerializer(data=extra_service_data)
         if extra_service_serializer.is_valid():
-            extra_service = extra_service_serializer.save()  # Save the new extra service
+            extra_service = extra_service_serializer.save()
+            total_paid = 0.0
 
-            # ✅ Process Payment if provided
             if payment_data:
                 payment_data["serviceId"] = extra_service.serviceId
-                payment_data["bookingId"] = booking.bookingId  # Ensure bookingId is assigned
-
-                # Set paymentRemarks to "Extra Service" when payment is made for an extra service
+                payment_data["bookingId"] = booking.bookingId
                 payment_data["paymentRemarks"] = "Extra Service"
 
                 payment_serializer = PaymentExtraInputSerializer(data=payment_data)
-
                 if payment_serializer.is_valid():
-                    payment_serializer.save()  # Save the payment
+                    payment_instance = payment_serializer.save()
+                    total_paid = float(payment_instance.amount or 0.0)
                 else:
-                    return Response(payment_serializer.errors, status=400)
+                    print("Payment Serializer Errors:", payment_serializer.errors)
+                    return Response({"error": "Payment validation failed", "details": payment_serializer.errors}, status=400)
 
-            # Update the payment status (optional depending on your implementation)
-            update_payment_status(extra_service.serviceId)
-            created_services.append(extra_service_serializer.data)
+            print(f"total_paid: {total_paid}, service_cost: {service_cost}")
+
+            # ✅ Correct payment status based on total_paid
+            if total_paid >= service_cost:
+                payment_status = "Paid"
+            elif total_paid > 0:
+                payment_status = "Partially Paid"  # Corrected to match the choice in the model
+            else:
+                payment_status = "Unpaid"
+
+            print(f"Calculated payment status: {payment_status}")
+
+            extra_service.paymentStatus = payment_status
+            extra_service.save()
+
+            response_data = extra_service_serializer.data
+            response_data["paymentStatus"] = payment_status
+
+            created_services.append(response_data)
         else:
-            return Response(extra_service_serializer.errors, status=400)
+            return Response({"error": "Validation failed", "details": extra_service_serializer.errors}, status=400)
 
     return Response({
         "message": "Extra services and payments processed successfully!",
         "extraServices": created_services
     }, status=201)
+
 
 
 @api_view(['GET'])
@@ -378,14 +424,18 @@ def add_payment_to_extra_service(request):
     update_payment_status(service_id)
 
     return Response({"message": "Payment added successfully and ExtraService updated!"}, status=201)
+
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from django.db.models import Sum
 from .models import ExtraService, Payment
 from .serializers import PaymentExtraInputSerializer
+from datetime import datetime
 
-@api_view(['POST'])
+
+@api_view(['PUT'])
 def payment_for_service(request):
+    print("Received data:", request.data)
 
     service_id = request.data.get("serviceId")
     amount = request.data.get("amount")
@@ -394,38 +444,75 @@ def payment_for_service(request):
     payment_type = request.data.get("paymentType")
     payment_date = request.data.get("paymentDate")
 
+    # Validate the inputs
     if not service_id:
         return Response({"error": "serviceId is required."}, status=400)
     if not amount or amount <= 0:
         return Response({"error": "Valid amount is required."}, status=400)
+    if not payment_date:
+        return Response({"error": "paymentDate is required."}, status=400)
 
     try:
+        # Retrieve the ExtraService object
         extra_service = ExtraService.objects.get(serviceId=service_id)
 
-        # ✅ Create a new Payment entry
-        payment_data = {
-            "serviceId": service_id,
-            "amount": amount,
-            "paymentMethod": payment_method,
-            "transactionId": transaction_id,
-            "paymentStatus": "Paid",  # ✅ Always set as "Paid"
-            "paymentType": payment_type,
-            "paymentDate": payment_date
-        }
-        payment_serializer = PaymentExtraInputSerializer(data=payment_data)
+        # Check if a payment already exists for this service
+        existing_payment = Payment.objects.filter(serviceId=service_id).first()
 
-        if payment_serializer.is_valid():
-            payment_serializer.save()
+        # If payment exists, update it, otherwise create a new one
+        if existing_payment:
+            # Update the existing payment record
+            existing_payment.amount = amount
+            existing_payment.paymentMethod = payment_method
+            existing_payment.transactionId = transaction_id
+            existing_payment.paymentType = payment_type
+            existing_payment.paymentDate = payment_date
+            existing_payment.paymentStatus = "Paid"  # Set as "Paid" when updating
+            existing_payment.save()
         else:
-            return Response(payment_serializer.errors, status=400)
+            # If no payment exists, create a new payment entry
+            payment_data = {
+                "serviceId": service_id,
+                "amount": amount,
+                "paymentMethod": payment_method,
+                "transactionId": transaction_id,
+                "paymentStatus": "Paid",  # Set as "Paid" by default
+                "paymentType": payment_type,
+                "paymentDate": payment_date
+            }
+            payment_serializer = PaymentExtraInputSerializer(data=payment_data)
 
-        # ✅ Update ExtraService payment status
+            if payment_serializer.is_valid():
+                payment_serializer.save()
+            else:
+                return Response(payment_serializer.errors, status=400)
+
+        # Update the payment status of the ExtraService object
         update_payment_status(service_id)
 
-        return Response({"message": "Payment added successfully!"}, status=201)
+        return Response({"message": "Payment updated successfully!"}, status=200)
 
     except ExtraService.DoesNotExist:
         return Response({"error": "Service not found."}, status=404)
+
+
+def update_payment_status(service_id):
+    try:
+        # Fetch the extra service by serviceId
+        extra_service = ExtraService.objects.get(serviceId=service_id)
+
+        # Check if the service has a payment associated
+        if Payment.objects.filter(serviceId=service_id).exists():
+            extra_service.paymentStatus = "Paid"
+        else:
+            extra_service.paymentStatus = "Pending"
+
+        # Save the updated payment status
+        extra_service.save()
+
+    except ExtraService.DoesNotExist:
+        pass  # Handle the case if serviceId doesn't exist
+
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -1256,25 +1343,98 @@ def update_tax(request, taxId):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+
+from datetime import datetime
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+from rest_framework import status
+from .models import Booking, Checkout
+from .serializers import CheckoutSerializer
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from hotel_app.models import Checkout
-from hotel_app.serializers import CheckoutSerializer
+from datetime import datetime
+from .models import Booking, Checkout
+from .serializers import CheckoutSerializer
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from datetime import datetime
+
+from .models import Booking, Checkout, Rooms # Make sure Room is imported
+from .serializers import CheckoutSerializer
 
 
 @api_view(['POST'])
 def create_checkout(request):
-    serializer = CheckoutSerializer(data=request.data)
-    if serializer.is_valid():
-        serializer.save()
-        return Response({
-            "message": "Checkout created successfully.",
-            "data": serializer.data
-        }, status=status.HTTP_201_CREATED)
+    if request.method == 'POST':
+        print(f"Received data: {request.data}")
+        data = request.data
 
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            # Required fields check
+            required_fields = [
+                'bookingId', 'roomNo', 'roomType', 'checkinDate', 'checkoutDate',
+                'checkinTime', 'checkoutTime', 'totalRent', 'additionalCharges'
+            ]
+            missing_fields = [field for field in required_fields if field not in data]
+            if missing_fields:
+                return Response(
+                    {"error": f"Missing required fields: {', '.join(missing_fields)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
+            # Fetch booking instance
+            booking_instance = Booking.objects.get(bookingId=data['bookingId'])
+
+            # Parse dates
+            try:
+                checkin_date = datetime.strptime(data['checkinDate'].strip(), '%d-%m-%Y').date()
+                checkout_date = datetime.strptime(data['checkoutDate'].strip(), '%d-%m-%Y').date()
+            except ValueError as e:
+                return Response({"error": f"Invalid date format: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Create Checkout instance
+            checkout = Checkout(
+                bookingId=booking_instance,
+                roomNo=data['roomNo'],
+                roomType=data['roomType'],
+                checkinDate=checkin_date,
+                checkinTime=data['checkinTime'],
+                extraserviceTotalAmount=data.get('extraserviceTotalAmount', 0.0),
+                checkoutDate=checkout_date,
+                checkoutTime=data['checkoutTime'],
+                totalRent=data['totalRent'],
+                additionalCharges=data['additionalCharges'],
+                remarks=data.get('remarks', ''),
+                stateGST=data.get('stateGST', 0.00),
+                centralGST=data.get('centralGST', 0.00),
+                discount=data.get('discount', 0.0),
+                checkinAdvance=data.get('checkinAdvance', 0.0)
+            )
+            checkout.save()
+
+            # Mark room as unoccupied
+            room_id = booking_instance.roomId
+            try:
+                room = Rooms.objects.get(id=room_id)
+                room.status = 'unoccupied'
+                room.save()
+            except Rooms.DoesNotExist:
+                return Response({"error": "Associated room not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Serialize and return
+            serializer = CheckoutSerializer(checkout)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+        except KeyError as e:
+            return Response({"error": f"Missing key: {e}"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": f"An error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # views.py
@@ -1315,3 +1475,74 @@ def get_category_name(request, service_id):
         return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+# views.py
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import ExtraService
+from .serializers import ExtraServiceSerializer
+
+@api_view(['GET'])
+def get_unpaid_services(request):
+    unpaid_services = ExtraService.objects.filter(paymentStatus='Unpaid')
+    serializer = ExtraServiceSerializer(unpaid_services, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+def create_payment_checkout(request):
+    # Log the data received from the frontend
+    print(f"Received data from frontend: {request.data}")
+
+    data = request.data.copy()
+
+    # Check if bookingId and totalAmount are provided
+    if data.get('bookingId') and data.get('totalAmount'):
+        data['paymentRemarks'] = 'Checkout'
+
+    serializer = PaymentCheckoutSerializer(data=data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+# views.py
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import ExtraService
+from django.db.models import Sum
+
+@api_view(['GET'])
+def get_total_extra_services(request, bookingId):
+    # Retrieve all extra services for the provided bookingId
+    extra_services = ExtraService.objects.filter(bookingId=bookingId)
+
+    # Sum the serviceCost of all extra services
+    total_cost = extra_services.aggregate(Sum('serviceCost'))['serviceCost__sum'] or 0
+
+    return Response({'bookingId': bookingId, 'extraservicetotalAmount': total_cost}, status=status.HTTP_200_OK)
+
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Rooms
+
+@api_view(['PUT'])
+def update_room_status(request, room_no):
+    try:
+        room = Rooms.objects.get(roomNumber=room_no)  # Find room by its room number
+        room.status = request.data.get('status', room.status)  # Update status or keep the current one
+        room.save()
+
+        return Response({"message": "Room status updated successfully."}, status=status.HTTP_200_OK)
+
+    except Rooms.DoesNotExist:
+        return Response({"error": "Room not found."}, status=status.HTTP_404_NOT_FOUND)

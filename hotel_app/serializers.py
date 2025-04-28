@@ -115,12 +115,22 @@ class PaymentSimpleSerializer(serializers.ModelSerializer):
 
 
 
+from rest_framework import serializers
+from datetime import datetime
+import pytz
 
-# Booking serializer for creation (input)
+from rest_framework import serializers
+from datetime import datetime
+import pytz
+
+
 class BookingSerializer(serializers.ModelSerializer):
     customer_input = CustomerSerializer(required=False, allow_null=True, write_only=True)
     payment = PaymentSerializer(required=False, write_only=True)
     checkInDate = serializers.DateField(format="%Y-%m-%d", input_formats=["%Y-%m-%d"])
+
+    # Adjusted checkInTime field to store time as a string (hh:mm AM/PM)
+    checkInTime = serializers.CharField(required=False, allow_null=True)
 
     class Meta:
         model = Booking
@@ -130,6 +140,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "customer_input",
             "roomId",
             "checkInDate",
+            "checkInTime",
             "Advance",
             "Rent",
             "createdAt",
@@ -137,73 +148,83 @@ class BookingSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("bookingId", "createdAt", "customerId")
 
+    def validate_checkInTime(self, value):
+        """Validate and convert `checkInTime` from 12-hour format to datetime."""
+        if value:
+            try:
+                # Try to parse the 12-hour format (e.g., "11:29 AM")
+                check_in_time = datetime.strptime(value, "%I:%M %p")
+
+                # Set the timezone (India Time Zone)
+                india_tz = pytz.timezone('Asia/Kolkata')
+                check_in_time = india_tz.localize(check_in_time)
+
+                # Return the time in the correct format (for database storage)
+                return check_in_time
+            except ValueError:
+                raise serializers.ValidationError(
+                    "Invalid checkInTime format. Use 'hh:mm AM/PM'."
+                )
+        return value  # Return None if not provided
+
     def create(self, validated_data):
-        # ✅ Extract and remove nested fields before creating Booking
         customer_data = validated_data.pop("customer_input", None)
         payment_data = validated_data.pop("payment", None)
+        check_in_time = validated_data.pop("checkInTime", None)
 
-        # ✅ Create or update customer if provided
         if customer_data:
             customer, created = Customer.objects.update_or_create(
                 idPassportNumber=customer_data["idPassportNumber"],
                 defaults=customer_data
             )
-            validated_data["customerId"] = customer.customerId  # Assign the customer ID to booking
+            validated_data["customerId"] = customer.customerId
 
-        # ✅ Create the booking with only valid fields
         booking = Booking.objects.create(**validated_data)
 
-        # ✅ Create Payment if provided
+        # Handle checkInTime if provided
+        if check_in_time:
+            # If the time is in string format, convert it to datetime and store
+            booking.checkInTime = check_in_time
+            booking.save()
+
         if payment_data:
-            # If paymentRemarks not provided, add default remarks based on conditions
             if not payment_data.get("paymentRemarks"):
                 if not payment_data.get("serviceId") and not payment_data.get("inspectionId"):
                     payment_data["paymentRemarks"] = "Check-in Advance"
-
-            # Create the payment object linked to the booking
             Payment.objects.create(bookingId=booking.bookingId, **payment_data)
 
         return booking
 
     def update(self, instance, validated_data):
-        # ✅ Handle customer updates
         customer_data = validated_data.pop("customer_input", None)
         if customer_data:
             customer = Customer.objects.filter(idPassportNumber=customer_data["idPassportNumber"]).first()
             if customer:
-                # ✅ Update only if customer exists
                 for attr, value in customer_data.items():
                     setattr(customer, attr, value)
                 customer.save()
             else:
-                # ✅ Create new customer only if it does not exist
                 customer = Customer.objects.create(**customer_data)
+            instance.customerId = customer.customerId
 
-            instance.customerId = customer.customerId  # Assign the updated/new customer ID
-
-        # ✅ Handle payment updates
         payment_data = validated_data.pop("payment", None)
         if payment_data:
-            # If paymentRemarks not provided, add default remarks based on conditions
             if not payment_data.get("paymentRemarks"):
                 if not payment_data.get("serviceId") and not payment_data.get("inspectionId"):
                     payment_data["paymentRemarks"] = "Check-in Advance"
-
-            # Update or create payment
             Payment.objects.update_or_create(
                 bookingId=instance.bookingId,
                 defaults=payment_data
             )
 
-        # ✅ Update the remaining booking fields
+        # Update other fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
         return instance
 
-
-
+from datetime import datetime
 # Booking simple detail serializer (for output)
 from rest_framework import serializers
 from hotel_app.models import Booking, Payment, Customer
@@ -213,7 +234,7 @@ class BookingSimpleDetailSerializer(serializers.ModelSerializer):
     customer_details = serializers.SerializerMethodField()
     extra_services = serializers.SerializerMethodField()  # Added
     inspections = serializers.SerializerMethodField()  # Added
-
+    checkInTime = serializers.SerializerMethodField()
     class Meta:
         model = Booking
         fields = (
@@ -222,6 +243,7 @@ class BookingSimpleDetailSerializer(serializers.ModelSerializer):
             'customer_details',
             'roomId',
             'checkInDate',
+            'checkInTime',
             'Advance',
             'Rent',
             'createdAt',
@@ -245,6 +267,19 @@ class BookingSimpleDetailSerializer(serializers.ModelSerializer):
     def get_inspections(self, obj):
         inspections = RoomInspection.objects.filter(bookingId=obj.bookingId)
         return RoomInspectionSerializer(inspections, many=True).data
+
+    def get_checkInTime(self, obj):
+        if obj.checkInTime:
+            try:
+                # Parse the datetime string
+                check_in_time_obj = datetime.strptime(obj.checkInTime, '%Y-%m-%d %H:%M:%S%z')
+
+                # Convert to desired format (12-hour format with AM/PM)
+                return check_in_time_obj.strftime('%I:%M %p')
+            except ValueError:
+                return None  # If parsing fails, return None
+        return None
+
 
 from rest_framework import serializers
 from hotel_app.models import Rooms, Booking, Customer, Payment
@@ -609,46 +644,20 @@ class TaxesSerializer(serializers.ModelSerializer):
 
 
 
+
 from rest_framework import serializers
 from .models import Checkout
 
 class CheckoutSerializer(serializers.ModelSerializer):
-    totalDaysStayed = serializers.SerializerMethodField()
-
     class Meta:
         model = Checkout
-        fields = [
-            "checkoutId",
-            "roomNo",
-            "roomType",
-            "checkinDate",
-            "checkinTime",
-            "extraserviceTotalAmount",
-            "extraserviceAlreadyPaid",
-            "extraservicePendingAmount",
-            "checkoutDate",
-            "checkoutTime",
-            "totalDaysStayed",  # 👈 Placed right after checkoutTime
-            "totalRentToBePaid",
-            "checkinAdvance",
-            "balanceRent",
-            "damageCost",
-            "discount",
-            "stateGST",
-            "centralGST",
-            "totalAmountToBePaid",
-            "finalAmount",
-            "paymentStatus",
-            "paymentMethod",
-            "paymentType",
-            "paymentDate",
-        ]
+        fields = '__all__'
 
-    def get_totalDaysStayed(self, obj):
-        return obj.totalDaysStayed
-
-
-
+    def validate_discount(self, value):
+        # Ensure the discount is a float and not iterable
+        if isinstance(value, float):
+            return value
+        raise serializers.ValidationError("Discount should be a float.")
 
 # serializers.py
 from rest_framework import serializers
@@ -658,3 +667,18 @@ class ExtraServiceCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExtraServiceCategory
         fields = ['categoryId', 'categoryName']
+
+
+from rest_framework import serializers
+from .models import Payment
+
+class PaymentCheckoutSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = '__all__'
+
+    def create(self, validated_data):
+        # If bookingId and totalAmount exist, auto-set paymentRemarks to "Checkout"
+        if validated_data.get("bookingId") and validated_data.get("totalAmount"):
+            validated_data["paymentRemarks"] = "Checkout"
+        return Payment.objects.create(**validated_data)

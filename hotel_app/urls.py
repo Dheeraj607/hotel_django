@@ -3,8 +3,9 @@ from django.urls import path, include
 from . import views
 from .views import rooms_available, rooms, book_room_and_payment, payment_detail, all_room_details, \
     create_payment_with_extras, MaintenanceTypeListView, add_roles, get_role_details, get_staff_by_type, \
-    modify_assignment, get_staff_not_in_role, create_checkout, get_all_extra_service_categories, get_category_name
-from .views import get_all_extra_services,payment_for_service,refund_operations,room_inspection,update_booking,maintenance_role_detail,maintenance_roles_list,maintenance_staff_detail,maintenance_staff_list
+    modify_assignment, get_staff_not_in_role, create_checkout, get_all_extra_service_categories, get_category_name, \
+    payment_for_service, get_unpaid_services, create_payment_checkout, get_total_extra_services, update_room_status
+from .views import get_all_extra_services,refund_operations,room_inspection,update_booking,maintenance_role_detail,maintenance_roles_list,maintenance_staff_detail,maintenance_staff_list
 from .views import create_maintenance_request,get_maintenance_requests_with_staff,update_maintenance_request
 
 
@@ -41,6 +42,10 @@ urlpatterns = [
     path('checkout/create/', create_checkout, name='create-checkout'),
     path('extra-service-categories/', get_all_extra_service_categories, name='get_extra_service_categories'),
     path('get-category-name/<int:service_id>/', get_category_name, name='get_category_name'),
+    path('unpaid-extraservices/', get_unpaid_services, name='unpaid-extra-services'),
+    path('create_payment_checkout/', create_payment_checkout, name='create_payment_checkout'),
+    path('extra-services/total/<int:bookingId>/', get_total_extra_services, name='get_total_extra_services'),
+    path('rooms/<str:room_no>/', update_room_status),
 ]
 
 
