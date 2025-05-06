@@ -1,10 +1,9 @@
-
 from hotel_app.serializers import RoomSerializer, BookingSerializer, PaymentSerializer, RoomSimpleDetailSerializer, \
     ExtraServiceSerializer, RefundSerializer, MultiRoleControlSerializer, PaymentCheckoutSerializer
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from hotel_app.models import Rooms, Booking, Payment, Customer, ExtraService, Refund, MultiRoleController, \
-    ExtraServiceCategory
+    ExtraServiceCategory, User
 
 
 @api_view(['GET'])
@@ -12,6 +11,8 @@ def rooms_available(request):
     rooms = Rooms.objects.all()
     serializer = RoomSerializer(rooms, many=True)
     return Response(serializer.data)
+
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from datetime import datetime
@@ -27,6 +28,7 @@ from datetime import datetime
 import pytz
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
+
 
 @api_view(['POST'])
 def book_room_and_payment(request):
@@ -58,7 +60,18 @@ def book_room_and_payment(request):
         return Response({"error": "Invalid checkInTime format."}, status=400)
 
     # Serialize the booking data
-    serializer = BookingSerializer(data=request.data)
+    input_data = request.data
+    user = User.objects.filter(userId=2).first()
+    createdBy = user.pk
+    updatedBy = user.pk
+    input_data["createdBy"] = createdBy
+    input_data["updatedBy"] = updatedBy
+    input_data["customer_input"]["createdBy"] = createdBy
+    input_data["customer_input"]["updatedBy"] = updatedBy
+    input_data["payment"]["createdBy"] = createdBy
+    input_data["payment"]["updatedBy"] = updatedBy
+    # print("input_data  >> \n", input_data)
+    serializer = BookingSerializer(data=input_data)
     if serializer.is_valid():
         booking = serializer.save()
 
@@ -83,6 +96,7 @@ from rest_framework.response import Response
 from hotel_app.models import Booking, Customer, Payment, Rooms
 from hotel_app.serializers import BookingSerializer, CustomerSerializer, PaymentSerializer
 
+
 @api_view(["PUT"])
 def update_booking(request, booking_id):
     """Handles updating an existing booking, including customer and payment details."""
@@ -91,9 +105,17 @@ def update_booking(request, booking_id):
     except Booking.DoesNotExist:
         return Response({"error": "Booking not found"}, status=404)
 
+    # user = User.objects.filter(userId=request.user.pk).first()
+    user = User.objects.filter(userId=2).first()
+    updatedBy = user.pk
+    updatedAt = datetime.now()
     # ✅ Extract nested customer and payment data separately
     customer_data = request.data.pop("customer_input", None)
+    customer_data["updatedBy"] = updatedBy
+    customer_data["updatedAt"] = updatedAt
     payment_data = request.data.pop("payment", None)
+    payment_data["updatedBy"] = updatedBy
+    # payment_data["updatedAt"] = updatedAt
 
     # ✅ Update customer details if provided
     if customer_data:
@@ -146,6 +168,7 @@ from datetime import datetime
 from .models import Rooms, Booking, Customer, Payment
 from .serializers import RoomSimpleDetailSerializer
 
+
 @api_view(['GET'])
 def all_room_details(request):
     # Start with all rooms.
@@ -190,7 +213,8 @@ def all_room_details(request):
         payment_booking_ids = list(
             Payment.objects.filter(paymentStatus__iexact=payment_status).values_list('bookingId', flat=True)
         )
-        booking_qs = booking_qs.filter(bookingId__in=payment_booking_ids) if payment_booking_ids else Booking.objects.none()
+        booking_qs = booking_qs.filter(
+            bookingId__in=payment_booking_ids) if payment_booking_ids else Booking.objects.none()
 
     # If booking-level filters were applied, limit the rooms
     if from_date or to_date or name or payment_status:
@@ -237,6 +261,7 @@ def rooms(request):
     serializer = RoomSerializer(queryset, many=True)
     return Response(serializer.data)
 
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.db.models import Sum
@@ -271,6 +296,8 @@ def update_payment_status(service_id):
         extra_service.save()
     except ExtraService.DoesNotExist:
         pass  # Handle missing ExtraService gracefully
+
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import Booking, ExtraService, ExtraServiceCategory, Payment
@@ -280,6 +307,8 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import Booking, ExtraService, Payment, ExtraServiceCategory
 from .serializers import ExtraServiceSerializer, PaymentExtraInputSerializer
+
+
 @api_view(['POST'])
 def create_payment_with_extras(request):
     print("Received Data:", request.data)
@@ -301,13 +330,19 @@ def create_payment_with_extras(request):
         return Response({"error": "extraServices must be a non-empty list."}, status=400)
 
     created_services = []
-
+    input_data = request.data
+    user = User.objects.filter(userId=2).first()
+    createdBy = user.pk
+    updatedBy = user.pk
+    input_data["createdBy"] = createdBy
+    input_data["updatedBy"] = updatedBy
     for extra_service_data in extra_services_data:
         service_cost = float(extra_service_data.get("serviceCost") or 0.0)
         payment_data = extra_service_data.pop("payment", None)
 
         extra_service_data["bookingId"] = booking.bookingId
-
+        extra_service_data["createdBy"] = createdBy
+        extra_service_data["updatedBy"] = updatedBy
         category_id = extra_service_data.get("categoryId", None)
         category = None
 
@@ -331,14 +366,16 @@ def create_payment_with_extras(request):
                 payment_data["serviceId"] = extra_service.serviceId
                 payment_data["bookingId"] = booking.bookingId
                 payment_data["paymentRemarks"] = "Extra Service"
-
+                payment_data["createdBy"] = createdBy
+                payment_data["updatedBy"] = updatedBy
                 payment_serializer = PaymentExtraInputSerializer(data=payment_data)
                 if payment_serializer.is_valid():
                     payment_instance = payment_serializer.save()
                     total_paid = float(payment_instance.amount or 0.0)
                 else:
                     print("Payment Serializer Errors:", payment_serializer.errors)
-                    return Response({"error": "Payment validation failed", "details": payment_serializer.errors}, status=400)
+                    return Response({"error": "Payment validation failed", "details": payment_serializer.errors},
+                                    status=400)
 
             print(f"total_paid: {total_paid}, service_cost: {service_cost}")
 
@@ -368,7 +405,6 @@ def create_payment_with_extras(request):
     }, status=201)
 
 
-
 @api_view(['GET'])
 def get_all_extra_services(request):
     booking_id = request.query_params.get('bookingId')
@@ -390,6 +426,7 @@ from rest_framework.response import Response
 from django.db.models import Sum
 from .models import ExtraService, Payment
 from .serializers import PaymentExtraInputSerializer
+
 
 @api_view(['POST'])
 def add_payment_to_extra_service(request):
@@ -455,7 +492,9 @@ def payment_for_service(request):
     try:
         # Retrieve the ExtraService object
         extra_service = ExtraService.objects.get(serviceId=service_id)
-
+        user = User.objects.filter(userId=2).first()
+        updatedBy = user.pk
+        updatedAt = datetime.now()
         # Check if a payment already exists for this service
         existing_payment = Payment.objects.filter(serviceId=service_id).first()
 
@@ -468,6 +507,8 @@ def payment_for_service(request):
             existing_payment.paymentType = payment_type
             existing_payment.paymentDate = payment_date
             existing_payment.paymentStatus = "Paid"  # Set as "Paid" when updating
+            existing_payment.updatedBy = updatedBy
+            existing_payment.updatedAt = updatedAt
             existing_payment.save()
         else:
             # If no payment exists, create a new payment entry
@@ -478,7 +519,9 @@ def payment_for_service(request):
                 "transactionId": transaction_id,
                 "paymentStatus": "Paid",  # Set as "Paid" by default
                 "paymentType": payment_type,
-                "paymentDate": payment_date
+                "paymentDate": payment_date,
+                "updatedBy": updatedBy,
+                "updatedAt": updatedAt
             }
             payment_serializer = PaymentExtraInputSerializer(data=payment_data)
 
@@ -519,18 +562,51 @@ from rest_framework.response import Response
 from .models import Refund
 from .serializers import RefundSerializer
 
+
 @api_view(['POST', 'GET', 'PUT'])
 def refund_operations(request):
+    from django.utils import timezone
+
     if request.method == 'POST':
         booking_id = request.data.get("bookingId")
         if not booking_id:
             return Response({"error": "bookingId is required."}, status=400)
 
-        # ✅ Check if Booking exists
         if not Booking.objects.filter(bookingId=booking_id).exists():
             return Response({"error": "bookingId not found."}, status=404)
 
-        serializer = RefundSerializer(data=request.data)
+        input_data = request.data.copy()
+
+        # 👤 Simulate logged-in user (replace with request.user in real auth)
+        user = User.objects.filter(userId=2).first()  # Or request.user
+        if not user:
+            return Response({"error": "User not found."}, status=400)
+
+        user_id = user.pk
+        now = timezone.now()
+
+        # 🕓 Inject audit fields at top-level
+        input_data["createdBy"] = user_id
+        input_data["updatedBy"] = user_id
+        input_data["createdAt"] = now
+        input_data["updatedAt"] = now
+
+        # ✅ Inject audit fields in nested `customer_input` if exists
+        if "customer_input" in input_data:
+            input_data["customer_input"]["createdBy"] = user_id
+            input_data["customer_input"]["updatedBy"] = user_id
+            input_data["customer_input"]["createdAt"] = now
+            input_data["customer_input"]["updatedAt"] = now
+
+        # ✅ Inject audit fields in nested `payment` if exists
+        if "payment" in input_data:
+            input_data["payment"]["createdBy"] = user_id
+            input_data["payment"]["updatedBy"] = user_id
+            input_data["payment"]["createdAt"] = now
+            input_data["payment"]["updatedAt"] = now
+
+        # 🔄 Now serialize and save
+        serializer = RefundSerializer(data=input_data)
         if serializer.is_valid():
             serializer.save()
             return Response({"message": "Refund created successfully!", "data": serializer.data}, status=201)
@@ -564,6 +640,19 @@ def refund_operations(request):
         if not refunds.exists():
             return Response({"error": "No refund found for this bookingId."}, status=404)
 
+        user = User.objects.filter(userId=2).first()
+        if not user:
+            return Response({"error": "User with userId=2 not found."}, status=404)
+
+        updated_by = user.pk
+        updated_at = datetime.now()
+
+        updated_refunds = []
+        for refund in refunds:
+            data = request.data.copy()  # Make a mutable copy for each refund
+            data["updatedBy"] = updated_by
+            data["updatedAt"] = updated_at
+
         updated_refunds = []
         for refund in refunds:
             serializer = RefundSerializer(refund, data=request.data, partial=True)
@@ -586,28 +675,51 @@ from hotel_app.serializers import (
     PaymentInputSerializer
 )
 
+from datetime import datetime
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import RoomInspection, Payment, User
+from .serializers import BookingInspectionSerializer, PaymentInputSerializer
+
+
 @api_view(['POST', 'GET', 'PUT'])
-def room_inspection(request, inspection_id=None):
+def room_inspection(request, *args, **kwargs):
     if request.method == 'POST':
         serializer = BookingInspectionSerializer(data=request.data)
         if serializer.is_valid():
             booking_id = serializer.validated_data['bookingId']
             inspections_data = serializer.validated_data['roomInspections']
 
+            user = User.objects.filter(userId=2).first()  # Or use request.user with JWT
+            created_by = updated_by = user
+            updated_at = datetime.now()
+
             created_inspections = []
             for inspection_data in inspections_data:
                 payment_data = inspection_data.pop('payment', None)
 
+                # Add metadata to inspection
+                inspection_data['createdBy'] = created_by
+                inspection_data['updatedBy'] = updated_by
+                inspection_data['updatedAt'] = updated_at
+
+                # Create RoomInspection
                 inspection = RoomInspection.objects.create(bookingId=booking_id, **inspection_data)
 
+                # Handle Payment if provided
                 payment_instance = None
                 if payment_data and 'amount' in payment_data:
-                    payment_instance = Payment.objects.create(
-                        bookingId=booking_id,
-                        inspectionId=inspection,
-                        **payment_data
-                    )
+                    # Add booking and inspection references + metadata
+                    payment_data['bookingId'] = booking_id
+                    payment_data['inspectionId'] = inspection
+                    payment_data['createdBy'] = created_by
+                    payment_data['updatedBy'] = updated_by
+                    payment_data['updatedAt'] = updated_at
 
+                    # Create Payment instance
+                    payment_instance = Payment.objects.create(**payment_data)
+
+                # Append response data
                 created_inspections.append({
                     "inspectionId": inspection.inspectionId,
                     "roomCondition": inspection.roomCondition,
@@ -620,45 +732,68 @@ def room_inspection(request, inspection_id=None):
 
         return Response(serializer.errors, status=400)
 
+
     elif request.method == 'PUT':
-        if not inspection_id:
-            return Response({"error": "Inspection ID is required for updating"}, status=400)
+        inspection_id = kwargs.get("inspection_id",None)
+        booking_id = request.data.get("bookingId")
+        inspections_data = request.data.get("roomInspections", [])
+        if not inspections_data:
+            return Response({"error": "No inspection data provided"}, status=400)
+        user = User.objects.filter(userId=2).first()  # Or request.user with JWT
+        updated_by = user
+        updated_at = datetime.now()
+        updated_inspections = []
 
-        try:
-            inspection = RoomInspection.objects.get(inspectionId=inspection_id)
-        except RoomInspection.DoesNotExist:
-            return Response({"error": "Inspection not found"}, status=404)
+        for inspection_data in inspections_data:
+            if not inspection_id:
+                return Response({"error": "inspectionId is required in roomInspections"}, status=400)
+            try:
+                inspection = RoomInspection.objects.get(inspectionId=inspection_id)
+            except RoomInspection.DoesNotExist:
+                return Response({"error": f"Inspection with ID {inspection_id} not found"}, status=404)
 
-        serializer = RoomInspectionInputSerializer(inspection, data=request.data, partial=True)
-        if serializer.is_valid():
-            updated_inspection = serializer.save()
+            # Add metadata
+            inspection_data["updatedBy"] = updated_by.pk
+            inspection_data["updatedAt"] = updated_at
+            # Update inspection
+            serializer = RoomInspectionInputSerializer(inspection, data=inspection_data, partial=True)
+            if serializer.is_valid():
+                updated_inspection = serializer.save()
 
-            payment_data = request.data.get('payment', None)
-            payment_instance = Payment.objects.filter(inspectionId=inspection).first()
+                # Handle payment
+                payment_data = inspection_data.get("payment")
+                payment_instance = Payment.objects.filter(inspectionId=inspection).first()
 
-            if payment_data:
-                if not payment_instance:
-                    payment_instance = Payment.objects.create(
-                        bookingId=inspection.bookingId,
-                        inspectionId=inspection,
-                        **payment_data
-                    )
-                else:
-                    for key, value in payment_data.items():
-                        setattr(payment_instance, key, value)
-                    payment_instance.save()
+                if payment_data:
+                    payment_data["updatedBy"] = updated_by
+                    payment_data["updatedAt"] = updated_at
+                    if not payment_instance:
+                        payment_instance = Payment.objects.create(
+                            bookingId=inspection.bookingId,
+                            inspectionId=inspection,
+                            createdBy=updated_by,
+                            **payment_data
+                        )
+                    else:
+                        for key, value in payment_data.items():
+                            setattr(payment_instance, key, value)
+                        payment_instance.save()
+                updated_inspections.append({
+                    "inspectionId": updated_inspection.inspectionId,
+                    "roomCondition": updated_inspection.roomCondition,
+                    "status": updated_inspection.status,
+                    "remarks": updated_inspection.remarks,
+                    "payment": PaymentInputSerializer(payment_instance).data if payment_instance else None
+                })
+            else:
+                return Response(serializer.errors, status=400)
+        return Response({"bookingId": booking_id, "roomInspections": updated_inspections}, status=200)
 
-            return Response({
-                "inspectionId": updated_inspection.inspectionId,
-                "roomCondition": updated_inspection.roomCondition,
-                "status": updated_inspection.status,
-                "remarks": updated_inspection.remarks,
-                "payment": PaymentInputSerializer(payment_instance).data if payment_instance else None
-            }, status=200)
 
-        return Response(serializer.errors, status=400)
 
     elif request.method == 'GET':
+        inspection_id = kwargs.get("inspection_id", None)
+        print(inspection_id)
         if not inspection_id:
             return Response({"error": "Inspection ID is required for fetching"}, status=400)
 
@@ -680,13 +815,9 @@ def room_inspection(request, inspection_id=None):
     return Response({"error": "Invalid request method"}, status=405)
 
 
-
-
-
-
-
 from rest_framework.decorators import api_view
 from hotel_app.serializers import MaintenanceStaffRolesSerializer
+
 
 # ✅ GET (all roles) & POST (create role)
 @api_view(['GET', 'POST'])
@@ -697,11 +828,25 @@ def maintenance_roles_list(request):
         return Response(serializer.data)
 
     elif request.method == 'POST':
+
+        input_data = request.data # Create a mutable copy of the input data
+
+        user = User.objects.filter(userId=2).first()
+        # if not user:
+        #     return Response({"error": "User with userId=2 not found."}, status=404)
+        createdBy = user.pk
+        updatedBy = user.pk
+        input_data["createdBy"] = createdBy
+        input_data["updatedBy"] = updatedBy
+        input_data["createdAt"] = datetime.now()
+        input_data["updatedAt"] = datetime.now()
+
         serializer = MaintenanceStaffRolesSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 # ✅ GET (single role) & PUT (update role)
 @api_view(['GET', 'PUT'])
@@ -716,6 +861,15 @@ def maintenance_role_detail(request, role_id):
         return Response(serializer.data)
 
     elif request.method == 'PUT':
+
+        input_data = request.data.copy()  # Make mutable copy
+        user = User.objects.filter(userId=2).first()
+        if not user:
+            return Response({"error": "User with userId=2 not found."}, status=404)
+
+        input_data["updatedBy"] = user.pk
+        input_data["updatedAt"] = datetime.now()
+
         serializer = MaintenanceStaffRolesSerializer(role, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -723,14 +877,13 @@ def maintenance_role_detail(request, role_id):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-
-
-
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from hotel_app.models import MaintenanceStaff
 from hotel_app.serializers import MaintenanceStaffSerializer, MaintenanceStaffNestedSerializer
+
+
 # @api_view(['POST', 'GET'])
 # def maintenance_staff_list(request):
 #     if request.method == 'GET':
@@ -789,9 +942,15 @@ def maintenance_staff_list(request):
 
 
     elif request.method == 'POST':
-
+        input_data = request.data
+        user = User.objects.filter(userId=2).first()
+        createdBy = user.pk
+        updatedBy = user.pk
+        input_data["createdBy"] = createdBy
+        input_data["updatedBy"] = updatedBy
+        input_data["createdAt"] = datetime.now()
+        input_data["updatedAt"] = datetime.now()
         serializer = MaintenanceStaffSerializer(data=request.data)
-
         if serializer.is_valid():
             serializer.save()
 
@@ -812,6 +971,14 @@ def maintenance_staff_detail(request, id):
         return Response(serializer.data)
 
     elif request.method == 'PUT':
+        input_data = request.data.copy()  # Make mutable copy
+        user = User.objects.filter(userId=2).first()
+        if not user:
+            return Response({"error": "User with userId=2 not found."}, status=404)
+
+        input_data["updatedBy"] = user.pk
+        input_data["updatedAt"] = datetime.now()
+
         serializer = MaintenanceStaffSerializer(staff, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -825,6 +992,12 @@ from rest_framework import status
 from hotel_app.models import MaintenanceStaff, StaffManagement, MaintenanceRequest, MaintenanceAssignment
 from hotel_app.serializers import MaintenanceRequestSerializer, MaintenanceAssignmentSerializer
 
+
+from django.utils.timezone import now
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+
 @api_view(['POST'])
 def create_maintenance_request(request):
     """Handles creating a maintenance request and assigning it to a staff member."""
@@ -837,90 +1010,83 @@ def create_maintenance_request(request):
         return Response({"error": f"Missing required fields: {', '.join(missing_fields)}"},
                         status=status.HTTP_400_BAD_REQUEST)
 
+    # ✅ Get user and time info
+    user = User.objects.filter(userId=2).first()
+    if not user:
+        return Response({"error": "User with userId=2 not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    created_by = user.pk
+    updated_by = user.pk
+
+
+    # ✅ Inject audit fields into maintenance request data
+    request_data = request.data.copy()
+    request_data["createdBy"] = created_by
+    request_data["updatedBy"] = updated_by
+    request_data["createdAt"] = datetime.now()
+    request_data["updatedAt"] = datetime.now()
+
+
     # ✅ Create Maintenance Request
-    request_serializer = MaintenanceRequestSerializer(data=request.data)
+    request_serializer = MaintenanceRequestSerializer(data=request_data)
     if not request_serializer.is_valid():
         return Response(request_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    maintenance_request = request_serializer.save()  # ✅ Save Maintenance Request
+    maintenance_request = request_serializer.save()
 
     # ✅ Assign to Maintenance Staff if `maintenanceStaffId` is provided
-    maintenance_staff_id = request.data.get("maintenanceStaffId")  # ✅ Using maintenanceStaffId instead of staffId
+    maintenance_staff_id = request.data.get("maintenanceStaffId")
     assignment_serializer = None
 
     if maintenance_staff_id:
-        print("ghjghghghg")
         try:
-            # ✅ Get the MaintenanceStaff instance using maintenanceStaffId
             staff_instance = MaintenanceStaff.objects.get(id=maintenance_staff_id)
         except MaintenanceStaff.DoesNotExist:
-            maintenance_request.delete()  # Rollback if staff doesn't exist
-            return Response({"error": f"Staff with ID {maintenance_staff_id} does not exist in MaintenanceStaff."},
+            maintenance_request.delete()
+            return Response({"error": f"Staff with ID {maintenance_staff_id} does not exist."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # ✅ Assign Maintenance Request to Staff
+        # ✅ Inject audit fields into assignment data
         assignment_data = {
-            "requestId": maintenance_request.requestId,  # ✅ Link to Maintenance Request
-            "maintenanceStaffId": staff_instance.id,  # ✅ Use maintenanceStaffId as FK
+            "requestId": maintenance_request.requestId,
+            "maintenanceStaffId": staff_instance.id,
             "issueResolved": False,
-            "comments": request.data.get("comments", "")
+            "comments": request.data.get("comments", ""),
+            "createdBy": created_by,
+            "updatedBy": updated_by,
+            "createdAt": datetime.now()
+,           "updatedAt": datetime.now()
+,
         }
 
         assignment_serializer = MaintenanceAssignmentSerializer(data=assignment_data)
         if assignment_serializer.is_valid():
-            assignment_serializer.save()  # ✅ Save Maintenance Assignment
+            assignment_serializer.save()
         else:
-            maintenance_request.delete()  # Rollback if assignment fails
-            print("❌ Assignment Serializer Errors:", assignment_serializer.errors)  # 🔴 Debugging
-            return Response({"error": "Failed to save maintenance assignment",
-                             "details": assignment_serializer.errors},
-                            status=status.HTTP_400_BAD_REQUEST)
+            maintenance_request.delete()
+            return Response({
+                "error": "Failed to save maintenance assignment",
+                "details": assignment_serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     # ✅ Success Response
     return Response({
         "message": "Maintenance request and assignment saved successfully",
         "maintenanceRequest": request_serializer.data,
-        "maintenanceAssignment": assignment_serializer.data if maintenance_staff_id else None
+        "maintenanceAssignment": assignment_serializer.data if assignment_serializer else None
     }, status=status.HTTP_201_CREATED)
 
 from rest_framework import generics
 from .models import MaintenanceType
 from .serializers import MaintenanceTypeSerializer
 
+
 class MaintenanceTypeListView(generics.ListAPIView):
     queryset = MaintenanceType.objects.all()
     serializer_class = MaintenanceTypeSerializer
 
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from rest_framework import status
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, MaintenanceStaffRoles, MaintenanceType
-from django.core.exceptions import ObjectDoesNotExist
 
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from rest_framework import status
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, MaintenanceStaffRoles, \
-    MaintenanceType
-from django.core.exceptions import ObjectDoesNotExist
 
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from rest_framework import status
-from hotel_app.models import MaintenanceRequest, MaintenanceAssignment, MaintenanceStaff, MaintenanceStaffRoles, \
-    MaintenanceType
-from django.core.exceptions import ObjectDoesNotExist
-
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from rest_framework import status
-from django.core.exceptions import ObjectDoesNotExist
-from .models import MaintenanceRequest, MaintenanceAssignment, MaintenanceType, MaintenanceStaff
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from rest_framework import status
-from django.core.exceptions import ObjectDoesNotExist
-from .models import MaintenanceRequest, MaintenanceAssignment, MaintenanceType, MaintenanceStaff
 
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
@@ -1042,6 +1208,13 @@ def update_maintenance_request(request, requestId):
     # ✅ Get the Maintenance Request based on requestId from the URL
     maintenance_request = get_object_or_404(MaintenanceRequest, requestId=requestId)
 
+    user = User.objects.filter(userId=2).first()
+    if not user:
+        return Response({"error": "User with userId=2 not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    updated_by = user.pk
+    updated_at = datetime.now()
+
     # ✅ Update Maintenance Request fields if provided
     update_fields = []
     if 'status' in request.data:
@@ -1055,6 +1228,9 @@ def update_maintenance_request(request, requestId):
         update_fields.append('issueDescription')
 
     if update_fields:
+        maintenance_request.updatedAt = updated_at
+        maintenance_request.updatedBy_id = updated_by
+        update_fields += ['updatedAt', 'updatedBy']
         maintenance_request.save(update_fields=update_fields)
 
     # ✅ Check if Maintenance Assignment needs an update
@@ -1079,6 +1255,9 @@ def update_maintenance_request(request, requestId):
                 return Response({"error": "Invalid maintenanceStaffId."}, status=status.HTTP_400_BAD_REQUEST)
 
         if update_assignment_fields:
+            assignment.updatedAt = updated_at
+            assignment.updatedBy_id = updated_by
+            update_assignment_fields += ['updatedAt', 'updatedBy']
             assignment.save(update_fields=update_assignment_fields)
 
     return Response({"message": "Maintenance request updated successfully."}, status=status.HTTP_200_OK)
@@ -1118,12 +1297,12 @@ def get_role_details(request, *args, **kwargs):
     return Response(output, status=status.HTTP_200_OK)
 
 
-
-
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from .models import MaintenanceType, MaintenanceStaffRoles, MaintenanceStaff
+
+
 @api_view(['GET'])
 def get_staff_by_type(request, *args, **kwargs):
     try:
@@ -1161,13 +1340,26 @@ def get_staff_by_type(request, *args, **kwargs):
     except MaintenanceType.DoesNotExist:
         return Response({"error": "Invalid typeId"}, status=status.HTTP_404_NOT_FOUND)
 
+
 @api_view(['POST'])
 def modify_assignment(request):
+    user = User.objects.filter(userId=2).first()
+    if not user:
+        return Response({"error": "User with userId=2 not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    created_by = user.pk
+    updated_by = user.pk
+    current_time = datetime.now()
+
     assignment_data = {
         "requestId": request.data.get('requestId', None),  # ✅ Link to Maintenance Request
         "maintenanceStaffId": request.data.get('staffId', None),  # ✅ Use maintenanceStaffId as FK
         "issueResolved": False,
-        "comments": request.data.get("comments", "")
+        "comments": request.data.get("comments", ""),
+        "createdBy": created_by,
+        "updatedBy": updated_by,
+        "createdAt": current_time,
+        "updatedAt": current_time
     }
     assignment_serializer = MaintenanceAssignmentSerializer(data=assignment_data)
     if assignment_serializer.is_valid():
@@ -1175,7 +1367,6 @@ def modify_assignment(request):
         return Response({"data": assignment_serializer.data}, status=status.HTTP_200_OK)
     else:
         return Response({"error": assignment_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-
 
 
 from rest_framework.decorators import api_view
@@ -1199,25 +1390,26 @@ from rest_framework import status
 from hotel_app.models import MaintenanceStaff
 
 @api_view(['DELETE'])
-def delete_staff_by_type(request, staffId):
+def delete_staff_from_role(request, staffId, roleId):
     try:
-        # Step 1: Filter all MaintenanceStaff entries with the given staffId
-        staff_members = MaintenanceStaff.objects.filter(staffId=staffId)
+        # Step 1: Filter the specific MaintenanceStaff mapping
+        assignment = MaintenanceStaff.objects.filter(staffId=staffId, roleId=roleId)
 
-        if not staff_members.exists():
-            return Response({"error": "Staff member not found."},
+        if not assignment.exists():
+            return Response({"error": "Staff-role mapping not found."},
                             status=status.HTTP_404_NOT_FOUND)
 
-        # Step 2: Delete all matching staff members
-        deleted_count = staff_members.delete()[0]
+        # Step 2: Delete only the matching assignment
+        deleted_count = assignment.delete()[0]
 
-        # Step 3: Return a response
-        return Response({"message": f" staff assignment(s) deleted successfully."},
+        # Step 3: Respond with success
+        return Response({"message": f"{deleted_count} staff deleted successfully."},
                         status=status.HTTP_200_OK)
 
     except Exception as e:
         return Response({"error": str(e)},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 from .models import StaffManagement
 from hotel_app.serializers import MaintenanceStaffSerializer
@@ -1225,6 +1417,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from hotel_app.models import MaintenanceStaff, MaintenanceStaffRoles
+
 
 @api_view(['GET'])
 def get_staff_not_in_role(request, roleId):
@@ -1260,8 +1453,6 @@ def get_staff_not_in_role(request, roleId):
         import traceback
         print(traceback.format_exc())
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
 
 
 from rest_framework.decorators import api_view
@@ -1306,7 +1497,12 @@ def taxes_list_create(request):
         if type == "Extra Service" and not request.data.get('category'):
             return Response({"error": "Category is required for Extra Service tax type."},
                             status=status.HTTP_400_BAD_REQUEST)
-
+        input_data = request.data
+        user = User.objects.filter(userId=2).first()
+        createdBy = user.pk
+        updatedBy = user.pk
+        input_data["createdBy"] = createdBy
+        input_data["updatedBy"] = updatedBy
         # Serialize and save the new tax
         serializer = TaxesSerializer(data=request.data)
         if serializer.is_valid():
@@ -1335,6 +1531,10 @@ def update_tax(request, taxId):
         return Response({"error": "Category is required for Extra Service tax type."},
                         status=status.HTTP_400_BAD_REQUEST)
 
+    user = User.objects.filter(userId=2).first()
+    input_data = request.data
+    input_data['updatedBy'] = user.pk
+    input_data['updatedAt'] = now()
     serializer = TaxesSerializer(tax, data=request.data)
     if serializer.is_valid():
         serializer.save()
@@ -1343,7 +1543,6 @@ def update_tax(request, taxId):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-
 from datetime import datetime
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
@@ -1363,7 +1562,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from datetime import datetime
 
-from .models import Booking, Checkout, Rooms # Make sure Room is imported
+from .models import Booking, Checkout, Rooms  # Make sure Room is imported
 from .serializers import CheckoutSerializer
 
 
@@ -1385,6 +1584,14 @@ def create_checkout(request):
                     {"error": f"Missing required fields: {', '.join(missing_fields)}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+
+            user = User.objects.filter(userId=2).first()
+            if not user:
+                return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            createdBy = user
+            updatedBy = user
+            createdAt = datetime.now()
+            updatedAt = datetime.now()
 
             # Fetch booking instance
             booking_instance = Booking.objects.get(bookingId=data['bookingId'])
@@ -1412,7 +1619,11 @@ def create_checkout(request):
                 stateGST=data.get('stateGST', 0.00),
                 centralGST=data.get('centralGST', 0.00),
                 discount=data.get('discount', 0.0),
-                checkinAdvance=data.get('checkinAdvance', 0.0)
+                checkinAdvance=data.get('checkinAdvance', 0.0),
+                createdBy = createdBy,
+                updatedBy = updatedBy,
+                createdAt = createdAt,
+                updatedAt = updatedAt,
             )
             checkout.save()
 
@@ -1442,6 +1653,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import ExtraServiceCategory
 from .serializers import ExtraServiceCategorySerializer
+
 
 @api_view(['GET'])
 def get_all_extra_service_categories(request):
@@ -1477,12 +1689,12 @@ def get_category_name(request, service_id):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
 # views.py
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import ExtraService
 from .serializers import ExtraServiceSerializer
+
 
 @api_view(['GET'])
 def get_unpaid_services(request):
@@ -1502,6 +1714,21 @@ def create_payment_checkout(request):
     if data.get('bookingId') and data.get('totalAmount'):
         data['paymentRemarks'] = 'Checkout'
 
+    user = User.objects.filter(userId=2).first()
+    if not user:
+        return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    # Adding createdBy, updatedBy, createdAt, and updatedAt to the input data
+    createdBy = user.pk
+    updatedBy = user.pk
+    createdAt = updatedAt = datetime.now()
+
+    # Add these fields to the data dictionary
+    data["createdBy"] = createdBy
+    data["updatedBy"] = updatedBy
+    data["createdAt"] = createdAt
+    data["updatedAt"] = updatedAt
+
     serializer = PaymentCheckoutSerializer(data=data)
     if serializer.is_valid():
         serializer.save()
@@ -1510,13 +1737,13 @@ def create_payment_checkout(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-
 # views.py
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from .models import ExtraService
 from django.db.models import Sum
+
 
 @api_view(['GET'])
 def get_total_extra_services(request, bookingId):
@@ -1529,11 +1756,11 @@ def get_total_extra_services(request, bookingId):
     return Response({'bookingId': bookingId, 'extraservicetotalAmount': total_cost}, status=status.HTTP_200_OK)
 
 
-
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Rooms
+
 
 @api_view(['PUT'])
 def update_room_status(request, room_no):
@@ -1546,3 +1773,20 @@ def update_room_status(request, room_no):
 
     except Rooms.DoesNotExist:
         return Response({"error": "Room not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Checkout
+from .serializers import CheckoutSerializer
+
+
+@api_view(['GET'])
+def get_all_checkouts(request):
+    try:
+        checkouts = Checkout.objects.all().order_by('-checkoutDate')
+        serializer = CheckoutSerializer(checkouts, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

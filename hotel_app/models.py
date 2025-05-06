@@ -1,17 +1,48 @@
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.validators import MinValueValidator, MaxValueValidator
 from djongo import models
 from datetime import datetime
+from django.utils import timezone
 
+
+from django.db import models
+from django.contrib.auth.hashers import make_password
+
+class User(models.Model):
+    userId = models.AutoField(primary_key=True)
+    username = models.CharField(max_length=50, unique=True)
+    password = models.CharField(max_length=255)
+
+    def save(self, *args, **kwargs):
+        # Hash the password before saving
+        if not self.pk or 'password' in self.get_dirty_fields():
+            self.password = make_password(self.password)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_user_id(cls, username):
+        try:
+            user = cls.objects.get(username=username)
+            print(f"User ID for '{username}' is {user.userId}")
+            return user.userId
+        except ObjectDoesNotExist:
+            print(f"No user found with username '{username}'")
+            return None
+    class Meta:
+        db_table = "User"
 
 class Customer(models.Model):
     customerId = models.AutoField(primary_key=True)
     fullName = models.CharField(max_length=255)
-    idPassportNumber = models.CharField(max_length=100, unique=True)
-    contactNumber = models.CharField(max_length=20)
+    idPassportNumber = models.CharField(max_length=8, unique=True)
+    contactNumber = models.CharField(max_length=10,unique=True)
     emailAddress = models.EmailField(max_length=255, unique=True, null=True, blank=True)
     nationality = models.CharField(max_length=100, null=True, blank=True)
     specialRequests = models.TextField(null=True, blank=True)
     createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_customers')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_customers')
 
     class Meta:
         db_table = "customersTable"
@@ -51,6 +82,19 @@ class Booking(models.Model):
     Advance = models.FloatField()
     Rent = models.FloatField()
     createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_bookings')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_bookings')
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            self.createdAt = timezone.now()
+            # self.createdBy = 1  # This will be set to the current user's ID
+        else:
+            self.updatedAt = timezone.now()
+            # self.updatedBy = 1  # This will be set to the current user's ID
+
+        super().save(*args, **kwargs)
 
     class Meta:
         db_table = "bookingsTable"
@@ -85,7 +129,7 @@ class Payment(models.Model):
         choices=[('Credit Card', 'Credit Card'), ('Cash', 'Cash'), ('UPI', 'UPI'), ('Online', 'Online')]
     )
 
-    transactionId = models.CharField(max_length=100, null=True, blank=True)
+    transactionId = models.CharField(max_length=100, null=True, blank=True,unique=True)
 
     paymentStatus = models.CharField(
         null=True,
@@ -119,7 +163,8 @@ class Payment(models.Model):
     stateGST = models.FloatField(null=True, blank=True)
     centralGST = models.FloatField(null=True, blank=True)
     totalAmount = models.FloatField(null=True, blank=True)
-
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_payments')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_payments')
     class Meta:
         db_table = "paymentsTable"
 
@@ -161,6 +206,7 @@ class ExtraService(models.Model):
     serviceDetails = models.CharField(max_length=100)
     serviceCost = models.FloatField()
     createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     paymentStatus = models.CharField(
         max_length=15,
@@ -175,6 +221,8 @@ class ExtraService(models.Model):
         null=True,
         blank=True
     )
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_extraservice')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_extraservice')
 
     class Meta:
         db_table = "extraServices"
@@ -192,8 +240,10 @@ class Refund(models.Model):
     bookingId = models.IntegerField()  
     refundAmount = models.DecimalField(max_digits=10, decimal_places=2)  
     reason = models.TextField() 
-    processedAt = models.DateTimeField(auto_now_add=True) 
-
+    processedAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_refund')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_refund')
     class Meta:
         db_table = "refundsTable"
 
@@ -224,6 +274,9 @@ class RoomInspection(models.Model):
     remarks = models.TextField(blank=True, null=True)  # Optional remarks field
 
     createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True, null=True, blank=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_inspection')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_inspection')
 
     class Meta:
         db_table = "roomInspectionTable"
@@ -279,6 +332,11 @@ class MaintenanceStaffRoles(models.Model):
 
     # ForeignKey to MaintenanceType
     typeId = models.ForeignKey(MaintenanceType, on_delete=models.CASCADE, related_name="staffRoles")
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True, null=True, blank=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_roles')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_roles')
+
 
     class Meta:
         db_table = "maintenanceStaffRoles"
@@ -339,6 +397,10 @@ class MaintenanceStaff(models.Model):
         db_column="roleId",
         related_name="maintenance_staff"
     )
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True, null=True, blank=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_maintenance_staff')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_maintenance_staff')
 
     class Meta:
         db_table = "maintenanceStaff"
@@ -381,6 +443,10 @@ class MaintenanceRequest(models.Model):
         ],
         default='Pending'
     )
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True, null=True, blank=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_maintenance_requests')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_maintenance_requests')
 
     class Meta:
         db_table = "maintenanceRequests"
@@ -401,6 +467,10 @@ class MaintenanceAssignment(models.Model):
     completionDate = models.DateTimeField(null=True, blank=True)
     issueResolved = models.BooleanField(default=False)
     comments = models.TextField(null=True, blank=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True, null=True, blank=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_assignments')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_assignments')
 
     class Meta:
         db_table = "maintenanceAssignments"
@@ -443,6 +513,11 @@ class Taxes(models.Model):
         decimal_places=2,
         help_text="Central GST in percentage"
     )
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True, null=True, blank=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_tax')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_tax')
+
 
     class Meta:
         db_table = "taxes"
@@ -494,6 +569,11 @@ class Checkout(models.Model):
     checkinAdvance = models.FloatField(default=0.0)
     # Final amount after applying discount: totalAmountIncludingTax - discount
     finalAmount = models.FloatField(default=0.0)
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True, null=True, blank=True)
+    createdBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='created_checkouts')
+    updatedBy = models.ForeignKey('User', on_delete=models.SET_NULL, null=True, related_name='updated_checkouts')
+
 
     class Meta:
         db_table = "checkout"

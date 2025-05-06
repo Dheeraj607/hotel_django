@@ -4,7 +4,8 @@ from . import views
 from .views import rooms_available, rooms, book_room_and_payment, payment_detail, all_room_details, \
     create_payment_with_extras, MaintenanceTypeListView, add_roles, get_role_details, get_staff_by_type, \
     modify_assignment, get_staff_not_in_role, create_checkout, get_all_extra_service_categories, get_category_name, \
-    payment_for_service, get_unpaid_services, create_payment_checkout, get_total_extra_services, update_room_status
+    payment_for_service, get_unpaid_services, create_payment_checkout, get_total_extra_services, update_room_status, \
+    get_all_checkouts, delete_staff_from_role
 from .views import get_all_extra_services,refund_operations,room_inspection,update_booking,maintenance_role_detail,maintenance_roles_list,maintenance_staff_detail,maintenance_staff_list
 from .views import create_maintenance_request,get_maintenance_requests_with_staff,update_maintenance_request
 
@@ -35,7 +36,7 @@ urlpatterns = [
     path('get-roles/<int:id>', get_role_details, name='get_role_details'),
     path('get-staffs/<int:id>', get_staff_by_type, name='get_staff_details'),
     path('modify-assignment/', modify_assignment, name='modify_assignment'),
-    path('delete-staff-by-type/<int:staffId>/', views.delete_staff_by_type, name='delete_staff_by_type'),
+    path('delete-staff-from-role/<int:staffId>/<int:roleId>/', delete_staff_from_role, name='delete_staff_from_role'),
     path('get_staff_not_in_role/<int:roleId>/', get_staff_not_in_role, name='get_staff_not_in_role'),
     path('taxes/', views.taxes_list_create, name='taxes_list_create'),  # GET all Taxes / POST create a new Tax
     path('taxes/update/<int:taxId>/', views.update_tax, name='update_tax'),
@@ -46,6 +47,7 @@ urlpatterns = [
     path('create_payment_checkout/', create_payment_checkout, name='create_payment_checkout'),
     path('extra-services/total/<int:bookingId>/', get_total_extra_services, name='get_total_extra_services'),
     path('rooms/<str:room_no>/', update_room_status),
+    path('checkouts/', get_all_checkouts, name='get_all_checkouts'),
 ]
 
 

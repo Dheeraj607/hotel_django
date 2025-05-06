@@ -3,6 +3,24 @@ from hotel_app.models import Rooms, Booking, Payment, ExtraService, Customer, Re
 
 
 class CustomerSerializer(serializers.ModelSerializer):
+    contactNumber = serializers.CharField(
+        min_length=10,
+        max_length=10,
+        error_messages={
+            'min_length': 'Contact number must be exactly 10 digits.',
+            'max_length': 'Contact number must be exactly 10 digits.'
+        }
+    )
+
+    idPassportNumber = serializers.CharField(
+        min_length=8,
+        max_length=8,
+        error_messages={
+            'min_length': 'Passport number must be exactly 8 characters.',
+            'max_length': 'Passport number must be exactly 8 characters.'
+        }
+    )
+
     class Meta:
         model = Customer
         fields = (
@@ -13,7 +31,9 @@ class CustomerSerializer(serializers.ModelSerializer):
             'emailAddress',
             'nationality',
             'specialRequests',
-            'createdAt'
+            'createdAt',
+            'createdBy',
+            'updatedBy'
         )
         read_only_fields = ('customerId', 'createdAt')
 
@@ -28,7 +48,7 @@ class ExtraServiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExtraService
-        fields = ['serviceId', 'bookingId', 'serviceDetails', 'serviceCost', 'createdAt', 'paymentStatus', 'categoryId', 'payment_details']
+        fields = ['serviceId', 'bookingId', 'serviceDetails', 'serviceCost', 'createdAt','updatedAt', 'paymentStatus', 'categoryId', 'payment_details','createdBy','updatedBy']
 
     def get_payment_details(self, obj):
         # Fetch related payments using the serviceId
@@ -68,7 +88,9 @@ class PaymentSerializer(serializers.ModelSerializer):
             'extra_services',
             'extra_services_total',
             'total_amount',
-            'refundDetails'
+            'refundDetails',
+            'createdBy',
+            'updatedBy'
         )
         read_only_fields = ('paymentId', 'createdAt', 'serviceId')
 
@@ -115,12 +137,11 @@ class PaymentSimpleSerializer(serializers.ModelSerializer):
 
 
 
-from rest_framework import serializers
-from datetime import datetime
-import pytz
+
 
 from rest_framework import serializers
 from datetime import datetime
+from django.utils import timezone
 import pytz
 
 
@@ -145,6 +166,8 @@ class BookingSerializer(serializers.ModelSerializer):
             "Rent",
             "createdAt",
             "payment",
+            "createdBy",
+            "updatedBy"
         )
         read_only_fields = ("bookingId", "createdAt", "customerId")
 
@@ -337,7 +360,7 @@ class PaymentExtraInputSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = ['paymentId', 'serviceId', 'bookingId', 'amount', 'paymentMethod',
-                  'transactionId', 'paymentStatus', 'paymentType', 'paymentDate','paymentRemarks']
+                  'transactionId', 'paymentStatus', 'paymentType', 'paymentDate','paymentRemarks','createdBy','updatedBy']
 
     def create(self, validated_data):
         return Payment.objects.create(**validated_data)
@@ -369,7 +392,7 @@ from hotel_app.models import RoomInspection, Payment
 class PaymentInputSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
-        fields = ['paymentId', 'amount', 'paymentMethod', 'transactionId', 'paymentStatus', 'paymentType', 'paymentDate']
+        fields = ['paymentId', 'amount', 'paymentMethod', 'transactionId', 'paymentStatus', 'paymentType', 'paymentDate','inspectionId','createdBy','updatedBy']
         extra_kwargs = {
             'amount': {'required': False},  # ✅ Make amount optional
         }
@@ -380,7 +403,7 @@ class RoomInspectionInputSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RoomInspection
-        fields = ['roomCondition', 'status', 'remarks', 'payment']
+        fields = ['roomCondition', 'inspectionId','status', 'remarks', 'payment','createdBy','updatedBy']
         extra_kwargs = {
             'roomCondition': {'required': True},  # ✅ Room condition is required
         }
@@ -473,7 +496,7 @@ class MaintenanceStaffSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MaintenanceStaff
-        fields = ['id', 'staffId', 'roleId']
+        fields = ['id', 'staffId', 'roleId','createdAt','updatedAt','createdBy','updatedBy']
 
     def validate(self, data):
         staff = data.get('staffId')
@@ -567,7 +590,8 @@ from hotel_app.models import MaintenanceRequest, MaintenanceAssignment
 class MaintenanceRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = MaintenanceRequest
-        fields = ['requestId', 'roomId', 'issueDescription', 'priorityLevel', 'requestDate', 'status', 'typeId',]
+        fields = ['requestId', 'roomId', 'issueDescription', 'priorityLevel', 'requestDate', 'status', 'typeId','createdAt','updatedAt',
+                  'createdBy','updatedBy']
         read_only_fields = ['requestId', 'requestDate']
 
 
@@ -590,7 +614,7 @@ class MaintenanceAssignmentSerializer(serializers.ModelSerializer):
         fields = [
             'assignmentId', 'assignedDate', 'completionDate', 'issueResolved',
             'comments', 'requestId', 'maintenanceStaffId', 'maintenanceStaffName',
-            'maintenanceStaffRole', 'maintenanceType'
+            'maintenanceStaffRole', 'maintenanceType','createdAt','updatedAt','createdBy','updatedBy'
         ]
         read_only_fields = ['assignmentId', 'assignedDate']
 
@@ -640,7 +664,7 @@ class TaxesSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Taxes
-        fields = ['taxId', 'type', 'category', 'stateGST', 'centralGST']
+        fields = ['taxId', 'type', 'category', 'stateGST', 'centralGST','createdAt','updatedAt','createdBy','updatedBy']
 
 
 
