@@ -50,6 +50,21 @@ class Customer(models.Model):
     def __str__(self):
         return f"Customer {self.fullName} (ID: {self.customerId})"
 
+from django.db import models
+
+class ImageProof(models.Model):
+    id = models.AutoField(primary_key=True)
+    customer = models.ForeignKey('Customer', on_delete=models.CASCADE, related_name='ImageProof')
+    name = models.CharField(max_length=255, blank=True, null=True)
+    photos = models.JSONField(default=list, blank=True)  # To store multiple image paths
+
+    class Meta:
+        db_table = "images"
+
+    def __str__(self):
+        return self.name
+
+
 
 class Rooms(models.Model):
     roomId = models.IntegerField(unique=True)

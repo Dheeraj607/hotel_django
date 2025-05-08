@@ -1,5 +1,10 @@
+import json
+
+from django.core.serializers import serialize
+
 from hotel_app.serializers import RoomSerializer, BookingSerializer, PaymentSerializer, RoomSimpleDetailSerializer, \
-    ExtraServiceSerializer, RefundSerializer, MultiRoleControlSerializer, PaymentCheckoutSerializer
+    ExtraServiceSerializer, RefundSerializer, MultiRoleControlSerializer, PaymentCheckoutSerializer, \
+    CustomerListSerializer
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from hotel_app.models import Rooms, Booking, Payment, Customer, ExtraService, Refund, MultiRoleController, \
@@ -29,6 +34,170 @@ import pytz
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 
+from datetime import datetime
+import pytz
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+import os
+from django.core.files.storage import default_storage
+from datetime import datetime
+import pytz
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+import os
+import json
+from django.core.files.storage import default_storage
+from .models import Rooms, User, ImageProof
+from .serializers import BookingSerializer
+
+
+# @api_view(['POST'])
+# def book_room_and_payment(request):
+#     room_id = request.data.get('roomId')
+#     if not room_id:
+#         return Response({"error": "roomId is required."}, status=400)
+#
+#     try:
+#         room = Rooms.objects.get(roomId=room_id)
+#     except Rooms.DoesNotExist:
+#         return Response({"error": "Room not found."}, status=404)
+#
+#     if room.status.strip().lower() not in ["available", "unoccupied"]:
+#         return Response({"error": "Room is not available."}, status=400)
+#
+#     check_in_time_str = request.data.get('checkInTime')
+#     if not check_in_time_str:
+#         return Response({"error": "checkInTime is required."}, status=400)
+#
+#     try:
+#         check_in_time = datetime.strptime(check_in_time_str, "%I:%M %p")
+#         india_tz = pytz.timezone('Asia/Kolkata')
+#         check_in_time = india_tz.localize(check_in_time)
+#     except ValueError:
+#         return Response({"error": "Invalid checkInTime format."}, status=400)
+#
+#     # Prepare booking data
+#     input_data = request.data.copy()
+#     user = User.objects.filter(userId=2).first()
+#     createdBy = user.pk
+#     updatedBy = user.pk
+#
+#     # Convert customer_input and payment from JSON strings to dicts if present
+#     customer_input = input_data.get("customer_input")
+#     if customer_input:
+#         customer_input = json.loads(customer_input)
+#         customer_input["createdBy"] = createdBy
+#         customer_input["updatedBy"] = updatedBy
+#         input_data["customer_input"] = customer_input
+#
+#     payment_input = input_data.get("payment")
+#     if payment_input:
+#         payment_input = json.loads(payment_input)
+#         payment_input["createdBy"] = createdBy
+#         payment_input["updatedBy"] = updatedBy
+#         input_data["payment"] = payment_input
+#
+#     input_data["createdBy"] = createdBy
+#     input_data["updatedBy"] = updatedBy
+#
+#     # Use the serializer to create a booking instance
+#     import pdb;pdb.set_trace()
+#     serializer = BookingSerializer(data=input_data)
+#     if serializer.is_valid():
+#         booking = serializer.save()
+#
+#         # Update room status to "Occupied"
+#         room.status = "Occupied"
+#         room.save()
+#
+#         response_data = serializer.data
+#
+#         # Handle ImageProof upload if photos are provided
+#         photos = request.FILES.getlist('photos')
+#         if photos:
+#             photo_paths = []
+#             for photo in photos:
+#                 path = default_storage.save(os.path.join('uploads', photo.name), photo)
+#                 photo_paths.append(path)
+#
+#             proof_name = request.data.get('proofName', 'ID Proof')
+#             image_proof = ImageProof.objects.create(
+#                 customer_id=booking.customerId,
+#                 name=proof_name,
+#                 photos=photo_paths
+#             )
+#
+#             # Include ImageProof data in response
+#             response_data['image_proof_id'] = image_proof.id
+#             response_data['image_proof_photos'] = photo_paths
+#         else:
+#             return Response({"error": "Please upload at least one photo."}, status=400)
+#
+#         return Response(response_data, status=201)
+#     else:
+#         return Response(serializer.errors, status=400)
+
+
+# @api_view(['POST'])
+# def book_room_and_payment(request):
+#     room_id = request.data.get('roomId')
+#     if not room_id:
+#         return Response({"error": "roomId is required."}, status=400)
+#
+#     try:
+#         room = Rooms.objects.get(roomId=room_id)
+#     except Rooms.DoesNotExist:
+#         return Response({"error": "Room not found."}, status=404)
+#
+#     # Check if the room is available (allow "available" or "unoccupied")
+#     if room.status.strip().lower() not in ["available", "unoccupied"]:
+#         return Response({"error": "Room is not available."}, status=400)
+#
+#     # Extract check-in time from the request
+#     check_in_time_str = request.data.get('checkInTime')
+#     if not check_in_time_str:
+#         return Response({"error": "checkInTime is required."}, status=400)
+#
+#     try:
+#         # Parse checkInTime in 12-hour format with AM/PM
+#         check_in_time = datetime.strptime(check_in_time_str, "%I:%M %p")
+#         # Assuming the time is in UTC, convert to IST
+#         india_tz = pytz.timezone('Asia/Kolkata')
+#         check_in_time = india_tz.localize(check_in_time)
+#     except ValueError:
+#         return Response({"error": "Invalid checkInTime format."}, status=400)
+#
+#     # Serialize the booking data
+#     input_data = request.data
+#     user = User.objects.filter(userId=2).first()
+#     createdBy = user.pk
+#     updatedBy = user.pk
+#     input_data["createdBy"] = createdBy
+#     input_data["updatedBy"] = updatedBy
+#     input_data["customer_input"]["createdBy"] = createdBy
+#     input_data["customer_input"]["updatedBy"] = updatedBy
+#     input_data["payment"]["createdBy"] = createdBy
+#     input_data["payment"]["updatedBy"] = updatedBy
+#     # print("input_data  >> \n", input_data)
+#     serializer = BookingSerializer(data=input_data)
+#     if serializer.is_valid():
+#         booking = serializer.save()
+#
+#         # Update room status to "Occupied" after successful booking
+#         room.status = "Occupied"
+#         room.save()
+#
+#         # Prepare payment data with checkInTime
+#         # payment_data = request.data.get('payment', {})
+#         # payment_data['bookingId'] = booking.bookingId  # Link payment to the created booking
+#         # payment_data['paymentRemarks'] = payment_data.get('paymentRemarks', 'Check-in Advance')
+#         # # Create the payment object with the provided data
+#         # Payment.objects.create(**payment_data)
+#
+#         return Response(serializer.data, status=201)
+#     else:
+#         return Response(serializer.errors, status=400)
+
 
 @api_view(['POST'])
 def book_room_and_payment(request):
@@ -50,45 +219,199 @@ def book_room_and_payment(request):
     if not check_in_time_str:
         return Response({"error": "checkInTime is required."}, status=400)
 
-    try:
-        # Parse checkInTime in 12-hour format with AM/PM
-        check_in_time = datetime.strptime(check_in_time_str, "%I:%M %p")
-        # Assuming the time is in UTC, convert to IST
-        india_tz = pytz.timezone('Asia/Kolkata')
-        check_in_time = india_tz.localize(check_in_time)
-    except ValueError:
-        return Response({"error": "Invalid checkInTime format."}, status=400)
-
-    # Serialize the booking data
+    # Prepare booking data
     input_data = request.data
-    user = User.objects.filter(userId=2).first()
-    createdBy = user.pk
-    updatedBy = user.pk
-    input_data["createdBy"] = createdBy
-    input_data["updatedBy"] = updatedBy
-    input_data["customer_input"]["createdBy"] = createdBy
-    input_data["customer_input"]["updatedBy"] = updatedBy
-    input_data["payment"]["createdBy"] = createdBy
-    input_data["payment"]["updatedBy"] = updatedBy
-    # print("input_data  >> \n", input_data)
+    user = User.objects.filter(userId=2).first()  # Assume user is found, replace as needed
+    createdBy = user
+    updatedBy = user
+
+    input_data["createdBy"] = createdBy.pk
+    input_data["updatedBy"] = updatedBy.pk
+
+    # Handle customer input
+    customer_input = input_data.get("customer_input")
+    # import pdb; pdb.set_trace()
+    if customer_input:
+        customer_input = json.loads(customer_input)
+        customer_input["createdBy"] = createdBy
+        customer_input["updatedBy"] = updatedBy
+        input_data["customer_input"] = customer_input
+
+        # Create or get the customer object
+        customer, created = Customer.objects.get_or_create(
+            idPassportNumber=customer_input.get("idPassportNumber"),
+            defaults=customer_input
+        )
+
+        input_data["customerId"] = customer.customerId  # Link the customer to the booking
+    else:
+        customer = None
+    # Handle payment input
+    payment_input = input_data.get("payment")
+    if payment_input:
+        payment_input = json.loads(payment_input)
+        payment_input["createdBy"] = user
+        payment_input["updatedBy"] = user
+        input_data["payment"] = payment_input
+
+    # Now serialize the booking data
+    # import pdb;pdb.set_trace()
     serializer = BookingSerializer(data=input_data)
     if serializer.is_valid():
         booking = serializer.save()
+
+        # Create Payment object
+        payment_data = input_data.get("payment", {})
+        payment_data['bookingId'] = booking.bookingId  # Link payment to the created booking
+        payment_data['paymentRemarks'] = payment_data.get('paymentRemarks', 'Check-in Advance')
+        booking.customerId = customer.customerId
+        booking.save()
+        # Create the payment object with the provided data
+        payment = Payment.objects.create(**payment_data)
 
         # Update room status to "Occupied" after successful booking
         room.status = "Occupied"
         room.save()
 
-        # Prepare payment data with checkInTime
-        # payment_data = request.data.get('payment', {})
-        # payment_data['bookingId'] = booking.bookingId  # Link payment to the created booking
-        # payment_data['paymentRemarks'] = payment_data.get('paymentRemarks', 'Check-in Advance')
-        # # Create the payment object with the provided data
-        # Payment.objects.create(**payment_data)
+        # Handle ImageProof upload
+        try:
+            customer_id = customer.customerId
+        except Exception as e:
+            return Response({"error": str(e)}, 500)
+        photos = request.FILES.getlist('photos')
 
-        return Response(serializer.data, status=201)
+        if photos:
+            photo_paths = []
+            for photo in photos:
+                path = default_storage.save(os.path.join('uploads', photo.name), photo)
+                photo_paths.append(path)
+
+            proof_name = request.data.get('proofName', 'ID Proof')
+            image_proof = ImageProof.objects.create(
+                customer_id=customer_id,
+                name=proof_name,
+                photos=photo_paths
+            )
+
+            # Include ImageProof in response
+            response_data = serializer.data
+            response_data['image_proof_id'] = image_proof.id
+            response_data['image_proof_photos'] = photo_paths
+        else:
+            response_data = serializer.data
+
+        # Return the full response with customerId and payment data
+        response_data['customerId'] = customer_id
+        response_data['paymentId'] = payment.paymentId
+        return Response(response_data, status=201)
     else:
         return Response(serializer.errors, status=400)
+
+
+#
+# @api_view(['POST'])
+# def book_room_and_payment(request):
+#     room_id = request.data.get('roomId')
+#     if not room_id:
+#         return Response({"error": "roomId is required."}, status=400)
+#
+#     try:
+#         room = Rooms.objects.get(roomId=room_id)
+#     except Rooms.DoesNotExist:
+#         return Response({"error": "Room not found."}, status=404)
+#
+#     # Check if the room is available (allow "available" or "unoccupied")
+#     if room.status.strip().lower() not in ["available", "unoccupied"]:
+#         return Response({"error": "Room is not available."}, status=400)
+#
+#     # input_data = request.data.copy()
+#     # user = User.objects.filter(userId=2).first()  # Assume user is found, replace as needed
+#     # createdBy = user
+#     # updatedBy = user
+#     #
+#     # input_data["createdBy"] = createdBy.pk
+#     # input_data["updatedBy"] = updatedBy.pk
+#
+#     # customer_input = input_data.get("customer_input")
+#     # import pdb;
+#     # pdb.set_trace()
+#     # if customer_input:
+#     #     customer_input = json.loads(customer_input)
+#     #     customer_input["createdBy"] = createdBy
+#     #     customer_input["updatedBy"] = updatedBy
+#     #     input_data["customer_input"] = customer_input
+#     #
+#     # # Handle payment input
+#     # payment_input = input_data.get("payment")
+#     # if payment_input:
+#     #     payment_input = json.loads(payment_input)
+#     #     payment_input["createdBy"] = user
+#     #     payment_input["updatedBy"] = user
+#     #     input_data["payment"] = payment_input
+#
+#     # Proceed with serializer
+#
+#     input_data = request.data.copy()
+#     user = User.objects.filter(userId=2).first()
+#     input_data["createdBy"] = user.pk
+#     input_data["updatedBy"] = user.pk
+#
+#     # ✅ Manually load customer_input JSON string into a dict
+#     customer_input_str = input_data.get("customer_input")
+#     if customer_input_str:
+#         customer_input = json.loads(customer_input_str)
+#         customer_input["createdBy"] = user
+#         customer_input["updatedBy"] = user
+#         input_data.setlist("customer_input", [customer_input])  # force it as list of dict (DRF expects nested dict)
+#
+#     # ✅ Manually load payment JSON string
+#     payment_input_str = input_data.get("payment")
+#     if payment_input_str:
+#         payment_input = json.loads(payment_input_str)
+#         payment_input["createdBy"] = user
+#         payment_input["updatedBy"] = user
+#         input_data.setlist("payment", [payment_input])
+#
+#
+#     import pdb;pdb.set_trace()
+#     serializer = BookingSerializer(data=input_data)
+#     if serializer.is_valid():
+#         booking = serializer.save()
+#
+#         # After saving, mark the room as occupied
+#         room.status = "Occupied"
+#         room.save()
+#
+#         # Handle image proof upload
+#         customer_id = booking.customerId
+#         photos = request.FILES.getlist('photos')
+#
+#         if photos:
+#             photo_paths = []
+#             for photo in photos:
+#                 path = default_storage.save(os.path.join('uploads', photo.name), photo)
+#                 photo_paths.append(path)
+#
+#             proof_name = request.data.get('proofName', 'ID Proof')
+#             image_proof = ImageProof.objects.create(
+#                 customer_id=customer_id,
+#                 name=proof_name,
+#                 photos=photo_paths
+#             )
+#
+#             # Include ImageProof in response
+#             response_data = BookingSerializer(booking).data
+#             response_data['image_proof_id'] = image_proof.id
+#             response_data['image_proof_photos'] = photo_paths
+#         else:
+#             response_data = BookingSerializer(booking).data
+#
+#         return Response(response_data, status=201)
+#     else:
+#         return Response(serializer.errors, status=400)
+
+
+
 
 
 from rest_framework.decorators import api_view
@@ -1403,7 +1726,7 @@ def delete_staff_from_role(request, staffId, roleId):
         deleted_count = assignment.delete()[0]
 
         # Step 3: Respond with success
-        return Response({"message": f"{deleted_count} staff deleted successfully."},
+        return Response({"message": f"staff deleted successfully."},
                         status=status.HTTP_200_OK)
 
     except Exception as e:
@@ -1790,3 +2113,57 @@ def get_all_checkouts(request):
         return Response(serializer.data, status=status.HTTP_200_OK)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+import os
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.core.files.storage import default_storage
+from .models import Customer, ImageProof
+
+@api_view(['POST'])
+def upload_image_proof(request):
+    customer_id = request.data.get('customerId')
+    if not customer_id:
+        return Response({"error": "customerId is required."}, status=400)
+
+    try:
+        customer = Customer.objects.get(customerId=customer_id)
+    except Customer.DoesNotExist:
+        return Response({"error": "Customer not found."}, status=404)
+
+    proof_name = request.data.get('name', 'ID Proof')
+
+    photos_files = request.FILES.getlist('photos')
+    if not photos_files:
+        return Response({"error": "Please upload at least one photo."}, status=400)
+
+    # Save photos
+    photo_paths = []
+    for photo in photos_files:
+        path = default_storage.save(os.path.join('uploads', photo.name), photo)
+        photo_paths.append(path)
+
+    # Create ImageProof record
+    image_proof = ImageProof.objects.create(
+        customer=customer,
+        name=proof_name,
+        photos=photo_paths
+    )
+
+    # Custom response (without id)
+    response_data = {
+        "customerId": customer.customerId,
+        "name": image_proof.name,
+        "photos": image_proof.photos
+    }
+
+    return Response(response_data, status=201)
+
+
+@api_view(['GET'])
+def get_all_customer(request):
+    customers=Customer.objects.all()
+    serializer=CustomerListSerializer(customers,many=True)
+    return Response(serializer.data)

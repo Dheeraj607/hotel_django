@@ -1,5 +1,8 @@
+
+
 from rest_framework import serializers
-from hotel_app.models import Rooms, Booking, Payment, ExtraService, Customer, Refund, MultiRoleController
+from hotel_app.models import Rooms, Booking, Payment, ExtraService, Customer, Refund, MultiRoleController, ImageProof
+from hotel_management import settings
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -60,7 +63,7 @@ class ExtraServiceSerializer(serializers.ModelSerializer):
 from rest_framework import serializers
 from datetime import datetime
 from hotel_app.models import Payment, ExtraService
-from .serializers import ExtraServiceSerializer  # Adjust import if needed
+from .serializers import ExtraServiceSerializer # Adjust import if needed
 from django.shortcuts import get_object_or_404
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -139,10 +142,12 @@ class PaymentSimpleSerializer(serializers.ModelSerializer):
 
 
 
-from rest_framework import serializers
+
 from datetime import datetime
 from django.utils import timezone
+
 import pytz
+
 
 
 class BookingSerializer(serializers.ModelSerializer):
@@ -190,11 +195,13 @@ class BookingSerializer(serializers.ModelSerializer):
                 )
         return value  # Return None if not provided
 
+
     def create(self, validated_data):
+
         customer_data = validated_data.pop("customer_input", None)
         payment_data = validated_data.pop("payment", None)
-        check_in_time = validated_data.pop("checkInTime", None)
 
+        # Handle Customer
         if customer_data:
             customer, created = Customer.objects.update_or_create(
                 idPassportNumber=customer_data["idPassportNumber"],
@@ -202,19 +209,16 @@ class BookingSerializer(serializers.ModelSerializer):
             )
             validated_data["customerId"] = customer.customerId
 
+        # Save booking
         booking = Booking.objects.create(**validated_data)
 
-        # Handle checkInTime if provided
-        if check_in_time:
-            # If the time is in string format, convert it to datetime and store
-            booking.checkInTime = check_in_time
-            booking.save()
-
+        # Handle Payment
         if payment_data:
+            payment_data['bookingId'] = booking.bookingId  # Link payment to booking
             if not payment_data.get("paymentRemarks"):
                 if not payment_data.get("serviceId") and not payment_data.get("inspectionId"):
                     payment_data["paymentRemarks"] = "Check-in Advance"
-            Payment.objects.create(bookingId=booking.bookingId, **payment_data)
+            Payment.objects.create(**payment_data)
 
         return booking
 
@@ -706,3 +710,19 @@ class PaymentCheckoutSerializer(serializers.ModelSerializer):
         if validated_data.get("bookingId") and validated_data.get("totalAmount"):
             validated_data["paymentRemarks"] = "Checkout"
         return Payment.objects.create(**validated_data)
+
+
+from rest_framework import serializers
+from .models import ImageProof
+
+class ImageProofSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ImageProof
+        fields = ['id', 'customer', 'name', 'photos']
+
+
+class CustomerListSerializer(serializers.ModelSerializer):
+    ImageProof=ImageProofSerializer(many=True,read_only=True)
+    class Meta:
+        model=Customer
+        fields='__all__'
