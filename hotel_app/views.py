@@ -2162,8 +2162,55 @@ def upload_image_proof(request):
     return Response(response_data, status=201)
 
 
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import Customer, Booking, Checkout
+from .serializers import CustomerListSerializer
+from datetime import datetime, time
+
 @api_view(['GET'])
 def get_all_customer(request):
-    customers=Customer.objects.all()
-    serializer=CustomerListSerializer(customers,many=True)
-    return Response(serializer.data)
+    checkin_date = request.GET.get('checkin')
+    checkout_date = request.GET.get('checkout')
+
+    try:
+        customer_ids = set()
+
+        if checkin_date:
+            # Convert checkin date to datetime range
+            checkin_start = datetime.combine(datetime.strptime(checkin_date, "%Y-%m-%d"), time.min)
+            checkin_end = datetime.combine(datetime.strptime(checkin_date, "%Y-%m-%d"), time.max)
+
+            # Find customers from bookings
+            booking_customers = Booking.objects.filter(
+                checkInDate__gte=checkin_start,
+                checkInDate__lte=checkin_end
+            ).values_list('customerId', flat=True)
+
+            customer_ids.update(booking_customers)
+
+        if checkout_date:
+            # Find bookings from checkout matching date
+            checkout_bookings = Checkout.objects.filter(
+                checkoutDate=checkout_date
+            ).values_list('bookingId__bookingId', flat=True)
+
+            # Find customers linked to those bookings
+            checkout_customers = Booking.objects.filter(
+                bookingId__in=checkout_bookings
+            ).values_list('customerId', flat=True)
+
+            customer_ids.update(checkout_customers)
+
+        if checkin_date or checkout_date:
+            # If any filter applied, fetch only matching customers
+            customers = Customer.objects.filter(customerId__in=customer_ids)
+        else:
+            # No filter: return all
+            customers = Customer.objects.all()
+
+        serializer = CustomerListSerializer(customers, many=True)
+        return Response(serializer.data)
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=400)
